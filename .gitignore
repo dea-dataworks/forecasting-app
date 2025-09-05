@@ -5,9 +5,11 @@ __pycache__/
 
 # Virtual environments
 .venv/
-env/
+.venv-forecasting/
 venv/
-ENV/
+env/
+*/.venv*/
+*/venv*/
 
 # Distribution / packaging
 build/

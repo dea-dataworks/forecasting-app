@@ -41,3 +41,4 @@ Phase 3: Baselines
                 -format_baseline_report() → optional tidy DataFrame for display.
 - Guardrails: monotonic index enforced, no leakage, safe handling of NAs and zero-division in MAPE.
 - Output: dictionary of predictions + metrics, with optional report table.
+
