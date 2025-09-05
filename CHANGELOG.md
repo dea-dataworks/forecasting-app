@@ -28,3 +28,16 @@ Phase 2 — EDA (Exploration)
         -Error if rolling window > series length, or if series has no valid values.
 
 - Output: figures and dictionary-style stats ready for Streamlit display.
+
+Phase 3: Baselines
+
+- Added baseline model functions in models.py:
+
+                -train_test_split_ts() → chronological train/test split with guardrails.
+                -naive_forecast() → repeat last observed value over test horizon.
+                -moving_average_forecast() → repeat mean of trailing window values.
+                -evaluate_forecast() → compute MAE, RMSE, MAPE with safe handling.
+                -run_baseline_suite() → convenience wrapper to run/compare baselines.
+                -format_baseline_report() → optional tidy DataFrame for display.
+- Guardrails: monotonic index enforced, no leakage, safe handling of NAs and zero-division in MAPE.
+- Output: dictionary of predictions + metrics, with optional report table.
