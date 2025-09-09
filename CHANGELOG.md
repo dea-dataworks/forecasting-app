@@ -144,4 +144,19 @@ Phase 9: Integration & Full App
         - Graceful skip if no models or data available.
 - Output: working end-to-end forecasting app (baseline models) with uploads, EDA, modeling, comparison, and exports.
 
+Phase 10: Classical Models (ARIMA & Prophet)
+
+- Added/updated classical.py with optional-dep guards and model APIs:
+        -train_auto_arima() → fit auto-ARIMA (seasonal optional, m inferred when sensible).
+        -forecast_auto_arima() → predictions + 95% CIs aligned to y_test.index.
+        -train_prophet() → fit Prophet with common seasonalities.
+        -forecast_prophet() → predictions + CIs aligned to y_test.index.
+- Models page integration:
+        -Checkbox toggles for ARIMA and Prophet (disabled if libs not installed).
+        -On run, trains on y_train only (no leakage) and merges outputs into baseline_results.
+        -Metrics table and overlay include ARIMA/Prophet when enabled.
+- Compare page: automatically picks up ARIMA/Prophet from baseline_results for overlay + leaderboard.
+- Guardrails: optional deps safely skipped with friendly st.warning; aligned indices; safe metrics (NaNs/zeros handled); baseline-only demo remains fully functional if libs are missing.
+- Output: end-to-end app now supports ARIMA/Prophet alongside baselines, ready for CI bands and further tuning next.
+
 

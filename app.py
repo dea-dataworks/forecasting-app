@@ -277,7 +277,7 @@ def render_models_page() -> None:
     # --- Controls ---
     c1, c2 = st.columns([2, 1])
     window = c1.slider("Moving average window (for baseline)", 3, 60, 7, 1)
-    run_button = c2.button("Run baselines", use_container_width=True)
+    run_button = c2.button("Run baselines", width="stretch")
 
     # --- Classical model toggles (visible even before first run) ---
     c3, c4 = st.columns([1, 1])
@@ -373,7 +373,7 @@ def render_models_page() -> None:
             forecast_df = build_forecast_table(index=y_test.index, y_pred=y_pred)
             csv_bytes = dataframe_to_csv_bytes(forecast_df)
             fn = make_default_filenames(base=f"{chosen}_forecast")
-            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", use_container_width=True)
+            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
         except Exception as e:
             left.warning(f"CSV export unavailable: {e}")
 
@@ -382,7 +382,7 @@ def render_models_page() -> None:
             if fig is not None:
                 png = figure_to_png_bytes(fig)
                 fn = make_default_filenames(base="baseline_overlay")
-                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", use_container_width=True)
+                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
             else:
                 right.info("Run baselines to enable plot export.")
         except Exception as e:
@@ -408,7 +408,7 @@ def render_compare_page() -> None:
     c1, c2 = st.columns([2, 1])
     max_h = len(y_test)
     h = c1.slider("Horizon (steps into test set)", 1, max_h, max_h)
-    run_btn = c2.button("Compare models", use_container_width=True)
+    run_btn = c2.button("Compare models", width="stretch")
 
     # ---- Assemble models we have
     # Start with baselines (built from stored y_pred Series)
@@ -486,7 +486,7 @@ def render_compare_page() -> None:
             fc_df = build_forecast_table(index=y_pred.index, y_pred=y_pred)
             csv_bytes = dataframe_to_csv_bytes(fc_df)
             fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
-            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", use_container_width=True)
+            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
         except Exception as e:
             left.warning(f"CSV export unavailable: {e}")
 
@@ -494,7 +494,7 @@ def render_compare_page() -> None:
             if fig is not None:
                 png = figure_to_png_bytes(fig)
                 fn = make_default_filenames(base=f"compare_overlay_H{H}")
-                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", use_container_width=True)
+                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
             else:
                 right.info("Run comparison to enable plot export.")
         except Exception as e:

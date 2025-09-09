@@ -1,19 +1,12 @@
+import warnings
+from typing import Any, Dict
+import numpy as np
 import pandas as pd
-from typing import Any
-import pandas as pd
+import matplotlib.pyplot as plt
 try:
     from prophet import Prophet  # optional
 except Exception:  # pragma: no cover
     Prophet = None  # type: ignore
-from typing import Any, Dict
-import warnings
-from typing import Dict
-import warnings
-import numpy as np
-import pandas as pd
-from typing import Dict
-import pandas as pd
-import matplotlib.pyplot as plt
 from typing import Any, Dict, Tuple
 import pandas as pd
 
