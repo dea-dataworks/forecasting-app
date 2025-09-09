@@ -103,4 +103,41 @@ Phase 8: Streamlit Styling & Density Toggle
         -Session state persists density choice across tabs.
         -CSS injection fails safe with warning (no crash if file missing).
         -Transparent plot backgrounds ensure Light/Dark mode compatibility.
-- Output: consistent font, colors, and density-aware plots/tables across all app pages.
+- Output: consistent font, colors, and density-aware plots/tables across all app pages..
+
+Phase 9: Integration & Full App
+
+- Added full Streamlit front end in app.py, wired to backend modules.
+- Implemented app shell:
+        - Page setup with `st.set_page_config`.
+        - Sidebar navigation across Data, EDA, Models, and Compare pages.
+        - Session bootstrapping for df, train, test, freq, summary.
+        - CSS injection with density toggle (compact/expanded).
+- Data page:
+        - CSV upload with `load_csv()` and datetime detection via `detect_datetime()`.
+        - Frequency report with `validate_frequency()`.
+        - Optional regularization with `regularize_and_fill()`.
+        - Target column selection + train/test split with `train_test_split_ts()`.
+        - Dataset summary using `summarize_dataset()` and preview table.
+- EDA page:
+        - Raw series plot (`plot_raw_series()`).
+        - Rolling mean/variance plot (`plot_rolling()`).
+        - Basic stats (`basic_stats()`).
+- Models page:
+        - Baseline models (naïve, moving average) via `run_baseline_suite()`.
+        - Metrics table (`format_baseline_report()`).
+        - Overlay chart with train/test and forecasts.
+        - Export options: forecast CSV + overlay PNG.
+- Compare page:
+        - Horizon slider with validation (`validate_horizon()`).
+        - Forecast alignment (`make_future_index()`, `generate_forecasts()`).
+        - Leaderboard metrics (`compute_metrics_table()`).
+        - Overlay plot (`plot_overlay()`).
+        - Export options: per-model CSV + overlay PNG.
+- Guardrails:
+        - Errors surfaced as warnings, no app crashes.
+        - Horizon clipped to test size.
+        - Graceful skip if no models or data available.
+- Output: working end-to-end forecasting app (baseline models) with uploads, EDA, modeling, comparison, and exports.
+
+

@@ -82,7 +82,7 @@ def train_prophet(
     weekly: bool = True,
     yearly: bool = True,
     daily: bool = False,
-) -> Optional["Prophet"]:
+) -> Optional[object]:
     """
     Fit a Prophet model on train only.
     Expects a DatetimeIndex and a single numeric Series.
@@ -104,7 +104,7 @@ def train_prophet(
 
 # Prophet forecasting + intervals: Prophet plays nicely if you just pass a future frame whose ds equals your test dates.
 def forecast_prophet(
-    model: "Prophet",
+    model: object,
     test_index: pd.DatetimeIndex,
 ) -> Tuple[pd.Series, pd.Series, pd.Series]:
     """

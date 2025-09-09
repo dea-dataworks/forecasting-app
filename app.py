@@ -38,13 +38,17 @@ def setup_page() -> None:
 
 # --- 2) Session state init ----------------------------------------------------
 def init_state_keys() -> None:
-    for k in ("df", "train", "test", "freq", "summary"):
+    for k in ("df", "train", "test", "freq", "summary",
+              "target_col","datetime_col","baseline_results","compare_cache"):
         st.session_state.setdefault(k, None)
     st.session_state.setdefault("density", "expanded")
 
 # --- 3) Sidebar navigation ----------------------------------------------------
 def sidebar_nav() -> str:
     st.sidebar.title("Navigation")
+    def _on_density_change():
+        st.rerun()
+    
     page = st.sidebar.radio(
         "Go to",
         options=("Data", "EDA", "Models", "Compare"),
@@ -53,13 +57,12 @@ def sidebar_nav() -> str:
     )
 
     st.sidebar.divider()
-    st.sidebar.radio(
-    "Density",
-    options=["expanded", "compact"],
-    key="density",
-    horizontal=True,
-    help="Compact = tighter padding, slightly smaller fonts & plots",
-    )
+    st.sidebar.radio("Density", 
+                    options=["expanded", "compact"],
+                    key="density", horizontal=True,
+                    help="Compact = tighter padding, slightly smaller fonts & plots",
+                    on_change=_on_density_change,
+                    )
     return page
 
 # --- 4) Import smoke test (no logic calls) -----------------------------------
@@ -70,6 +73,8 @@ def import_smoke_test() -> None:
     except Exception as e:
         st.sidebar.warning(f"⚠️ Import check: {type(e).__name__}: {e}")
 
+def warn(context: str, e: Exception):
+    st.warning(f"{context}: {type(e).__name__}: {e}")
 
 # --- Inject CSS + a body class based on the toggle ---------------------------
 def _inject_density_css(density_value: str) -> None:
@@ -298,7 +303,7 @@ def render_models_page() -> None:
         results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
         st.session_state["baseline_results"] = results
     except Exception as e:
-        st.error(f"Baseline run failed: {e}")
+        st.warning(f"Baseline run failed: {e}")
         return
 
     results = st.session_state["baseline_results"]
@@ -307,7 +312,7 @@ def render_models_page() -> None:
     try:
         table = format_baseline_report(results)
         st.subheader("Metrics")
-        st.dataframe(table, use_container_width=True)
+        st.dataframe(table, width="stretch")
     except Exception as e:
         st.warning(f"Could not format metrics table: {e}")
         table = None
@@ -395,13 +400,13 @@ def render_compare_page() -> None:
     try:
         H = validate_horizon(y_test, h)
     except Exception as e:
-        st.error(f"Horizon invalid: {e}")
+        st.warning(f"Horizon invalid: {e}")
         return
 
     try:
         future_idx = make_future_index(last_ts=y_train.index[-1], periods=H, freq=freq)
     except Exception as e:
-        st.error(f"Could not build future index: {e}")
+        st.warning(f"Could not build future index: {e}")
         return
 
     if not run_btn and "compare_cache" not in st.session_state:
@@ -412,7 +417,7 @@ def render_compare_page() -> None:
         forecasts = generate_forecasts(models=models, horizon=H, last_ts=y_train.index[-1], freq=freq)
         st.session_state["compare_cache"] = {"forecasts": forecasts, "H": H, "future_idx": future_idx}
     except Exception as e:
-        st.error(f"Forecast generation failed: {e}")
+        st.warning(f"Forecast generation failed: {e}")
         return
 
     forecasts = st.session_state["compare_cache"]["forecasts"]
@@ -464,53 +469,10 @@ def render_compare_page() -> None:
 
     st.success("Comparison ready. Add ARIMA/Prophet later to broaden the race.")
 
-
+# DELETE
 def render_placeholder_page(name: str) -> None:
     st.markdown(f"### {name}")
     st.info(f"{name} page is coming soon. Shell only for Phase 7.")
-
-
-# --- UI diagnostics (temporary) ----------------------------------------------
-import numpy as np
-import matplotlib.pyplot as plt
-
-def _ui_diagnostics_block():
-    # Local tiny config (kept here to avoid more helpers right now)
-    _cfg = {
-        "compact":  dict(plot_w=880, plot_h=340, title=16, label=12.5, legend=12, table_rows=10, row_px=26),
-        "expanded": dict(plot_w=960, plot_h=380, title=16.5, label=13.5, legend=13, table_rows=8,  row_px=32),
-    }
-    density = st.session_state.get("density", "expanded")
-    cfg = _cfg["compact" if density == "compact" else "expanded"]
-
-    with st.expander("🧪 UI Diagnostics (temporary)"):
-        st.write(f"**Density:** `{density}` · Plot target: {cfg['plot_w']}×{cfg['plot_h']} px · "
-                 f"Table ~{cfg['table_rows']} rows")
-
-        # --- Plot smoke test ---
-        # px → inches at 100 DPI
-        w_in, h_in = cfg["plot_w"] / 100.0, cfg["plot_h"] / 100.0
-        x = pd.date_range("2022-01-01", periods=120, freq="D")
-        y = pd.Series(np.sin(np.linspace(0, 8, len(x))) * 10 + 100, index=x)
-
-        fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=100)
-        ax.plot(y.index, y.values)
-        ax.set_title("Density-sized plot", fontsize=cfg["title"])
-        ax.set_xlabel("Time", fontsize=cfg["label"])
-        ax.set_ylabel("Value", fontsize=cfg["label"])
-        ax.tick_params(axis="both", labelsize=max(10, int(cfg["label"] - 1)))
-        fig.patch.set_alpha(0.0)   # transparent for Light/Dark
-        ax.set_facecolor("none")
-        st.pyplot(fig, width="stretch")
-
-        # --- Table smoke test ---
-        df_demo = pd.DataFrame({"value": np.round(y.tail(30).values, 2)}, index=y.tail(30).index)
-        header_px = 42
-        rows_to_show = min(len(df_demo), cfg["table_rows"])
-        height_px = int(header_px + rows_to_show * cfg["row_px"])
-        st.dataframe(df_demo, width="stretch", height=height_px)
-        st.caption(f"Approx table height: {height_px}px (rows shown ≈ {rows_to_show})")
-
 
 # --- 7) Main ------------------------------------------------------------------
 def main() -> None:
