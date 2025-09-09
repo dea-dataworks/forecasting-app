@@ -67,3 +67,12 @@ Phase 5: Comparison Dashboard
 - Guardrails: horizon clipping, safe NaN handling, graceful skip of failing/None models, standardized float Series with aligned indexes.
 - Output: model leaderboard table and overlay chart for direct performance comparison in the dashboard.
 
+Phase 6: Outputs
+
+- Added new module outputs.py with export utilities:
+        -build_forecast_table() → assemble forecast + CIs into tidy DataFrame.
+        -dataframe_to_csv_bytes() → convert DataFrame to UTF-8 CSV bytes.
+        -figure_to_png_bytes() → serialize Matplotlib Figure as PNG bytes.
+        -make_default_filenames() → generate timestamped names for CSV/PNG.
+- Guardrails: enforce datetime index, check array lengths, ensure UTF-8 encoding, avoid temp files.
+- Output: forecast values (CSV) and plots (PNG) ready for download in Streamlit.
