@@ -159,4 +159,12 @@ Phase 10: Classical Models (ARIMA & Prophet)
 - Guardrails: optional deps safely skipped with friendly st.warning; aligned indices; safe metrics (NaNs/zeros handled); baseline-only demo remains fully functional if libs are missing.
 - Output: end-to-end app now supports ARIMA/Prophet alongside baselines, ready for CI bands and further tuning next.
 
+Phase 11: Release Prep & QA 
 
+- Fixed deprecated Streamlit params in app.py (use_container_width → width="stretch").
+- Cleaned redundant imports in compare.py.
+- Added root requirements.txt with core deps; marked pmdarima/prophet as optional.
+- Completed README.md with setup instructions, features, and troubleshooting.
+- Removed/annotated empty modules (utils.py, ml_models.py).
+- Guardrails: confirmed downloads (CSV/PNG) work, Compare page exports selected models.
+- Output: repo is clean, documented, and shippable as v0.2.
