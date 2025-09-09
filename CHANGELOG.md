@@ -42,3 +42,14 @@ Phase 3: Baselines
 - Guardrails: monotonic index enforced, no leakage, safe handling of NAs and zero-division in MAPE.
 - Output: dictionary of predictions + metrics, with optional report table.
 
+Phase 4: Classical Models
+
+- Added new module classical.py with forecasting functions:
+
+                -train_auto_arima() → fit auto-ARIMA with optional seasonality.
+                -forecast_auto_arima() → generate forecasts + confidence intervals aligned to test horizon.
+                -train_prophet() → fit Prophet model (if installed) with trend + seasonalities.
+                -forecast_prophet() → produce Prophet forecasts + uncertainty intervals.
+                -plot_forecast_with_ci() → unified line plot with shaded confidence bands.
+- Guardrails: optional imports (skip cleanly if library missing), no train/test leakage, validated seasonal period, consistent Series outputs indexed to test set.
+- Output: forecast series with confidence intervals and standardized plots for comparison.
