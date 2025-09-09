@@ -3,8 +3,6 @@ import streamlit as st
 import pandas as pd
 
 
-
-
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:
     st.set_page_config(
@@ -18,16 +16,29 @@ def setup_page() -> None:
 def init_state_keys() -> None:
     for k in ("df", "train", "test", "freq", "summary"):
         st.session_state.setdefault(k, None)
+    st.session_state.setdefault("density", "expanded")
 
 # --- 3) Sidebar navigation ----------------------------------------------------
 def sidebar_nav() -> str:
     st.sidebar.title("Navigation")
-    return st.sidebar.radio(
+    page = st.sidebar.radio(
         "Go to",
         options=("Data", "EDA", "Models", "Compare"),
         label_visibility="collapsed",
         index=0,
     )
+
+    st.sidebar.divider()
+    density = st.sidebar.radio(
+        "Density",
+        options=["expanded", "compact"],
+        index=0 if st.session_state.get("density", "expanded") == "expanded" else 1,
+        horizontal=True,
+        help="Compact = tighter padding, slightly smaller fonts & plots",
+    )
+    st.session_state["density"] = density
+
+    return page
 
 # --- 4) Import smoke test (no logic calls) -----------------------------------
 def import_smoke_test() -> None:
@@ -36,6 +47,30 @@ def import_smoke_test() -> None:
         from src import data_input, eda, baselines, classical, compare  # noqa: F401
     except Exception as e:
         st.sidebar.warning(f"⚠️ Import check: {type(e).__name__}: {e}")
+
+
+# --- Inject CSS + a body class based on the toggle ---------------------------
+def _inject_density_css(density_value: str) -> None:
+    # Load tiny stylesheet; warn if missing but don't break the app
+    try:
+        with open("src/ui.css", "r", encoding="utf-8") as f:
+            css = f.read()
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except Exception as e:
+        st.sidebar.warning(f"UI CSS not found: {e}")
+
+    # Set a body class so CSS can target compact/expanded
+    st.markdown(
+        f"""
+        <script>
+        const clsCompact = 'density-compact';
+        const clsExpanded = 'density-expanded';
+        document.body.classList.remove(clsCompact, clsExpanded);
+        document.body.classList.add('{ "density-compact" if density_value=="compact" else "density-expanded" }');
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # --- 5) Sample data loader (button) ------------------------------------------
 def load_sample_button() -> None:
@@ -66,7 +101,9 @@ def main() -> None:
     init_state_keys()
     import_smoke_test()
 
-    page = sidebar_nav()
+    page = sidebar_nav()    
+    _inject_density_css(st.session_state["density"])
+                        
     st.title("📈 Forecasting App")
 
     if page == "Data":

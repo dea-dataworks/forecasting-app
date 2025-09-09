@@ -76,3 +76,14 @@ Phase 6: Outputs
         -make_default_filenames() → generate timestamped names for CSV/PNG.
 - Guardrails: enforce datetime index, check array lengths, ensure UTF-8 encoding, avoid temp files.
 - Output: forecast values (CSV) and plots (PNG) ready for download in Streamlit.
+
+Phase 7: Streamlit Shell & Wiring
+
+- Added app.py with Streamlit scaffolding:
+        -sidebar_nav() → basic sidebar navigation (Data, EDA, Models, Compare).
+        -load_sample_button() → button to load sample data into session state.
+        -render_data_page() / render_placeholder_page() → page placeholders with “coming soon” messages.
+        -import_smoke_test() → check that core modules import without errors.
+        -main() → orchestrator: sets page config, initializes state keys, runs sidebar, routes pages.
+- Guardrails: no backend logic wired yet, imports tested to avoid runtime errors, safe handling if no data loaded.
+- Output: functional Streamlit shell with navigation and placeholders, ready for Phase 9 integration.

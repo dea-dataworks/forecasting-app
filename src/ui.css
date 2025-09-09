@@ -9,3 +9,25 @@
   padding-bottom: 4px !important;
   font-size: 13px;
 }
+
+/* assets/ui.css */
+/* Two modes, driven by a body class injected from app.py */
+
+:root { --font-scale: 1.00; }
+body.density-compact  { --font-scale: 0.95; }
+body.density-expanded { --font-scale: 1.00; }
+
+/* Let Streamlit inherit the scale */
+html, body, [class^="st-"] { font-size: calc(16px * var(--font-scale)); }
+
+/* Page padding */
+body.density-compact  .block-container { padding: 1.0rem 1.0rem; }
+body.density-expanded .block-container { padding: 1.2rem 1.2rem; }
+
+/* Horizontal layout gap (light touch) */
+body.density-compact  .stHorizontalBlock { gap: 12px !important; }
+body.density-expanded .stHorizontalBlock { gap: 16px !important; }
+
+/* Table row height (approximate) */
+body.density-compact  div[data-testid="stDataFrame"] table tbody tr { height: 26px; }
+body.density-expanded div[data-testid="stDataFrame"] table tbody tr { height: 32px; }
