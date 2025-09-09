@@ -134,6 +134,10 @@ Phase 9: Integration & Full App
         - Leaderboard metrics (`compute_metrics_table()`).
         - Overlay plot (`plot_overlay()`).
         - Export options: per-model CSV + overlay PNG.
+- UX polish: 
+        -Density toggle on_change rerun; init missing session keys; consistent recoverable errors via st.warning (helper warn()); swapped st.dataframe(..., use_container_width=True) → width="stretch"; hid UI diagnostics.
+        -Thin vertical slice: Data page end-to-end (upload → datetime → freq/gaps → optional regularize → pick target → split); EDA minimal (raw, rolling, stats); Models baselines with CSV/PNG exports; Compare overlay + leaderboard with horizon slider and friendly warnings.
+        Note: ARIMA/Prophet deferred to next phase; baselines only for demo.
 - Guardrails:
         - Errors surfaced as warnings, no app crashes.
         - Horizon clipped to test size.

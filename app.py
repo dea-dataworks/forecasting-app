@@ -3,29 +3,13 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 from typing import Optional
-from src.data_input import (
-    load_csv,
-    detect_datetime,
-    validate_frequency,
-    regularize_and_fill,
-    summarize_dataset,
-)
+from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
 from src.baselines import train_test_split_ts
 from src.eda import plot_raw_series, plot_rolling, basic_stats
 from src.baselines import run_baseline_suite, format_baseline_report
-from src.compare import (
-    validate_horizon,
-    make_future_index,
-    generate_forecasts,
-    compute_metrics_table,
-    plot_overlay,
-)
-from src.outputs import (
-    build_forecast_table,
-    dataframe_to_csv_bytes,
-    figure_to_png_bytes,
-    make_default_filenames,
-)
+from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,)
+from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
+from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
 
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:
@@ -295,18 +279,67 @@ def render_models_page() -> None:
     window = c1.slider("Moving average window (for baseline)", 3, 60, 7, 1)
     run_button = c2.button("Run baselines", use_container_width=True)
 
+    # --- Classical model toggles (visible even before first run) ---
+    c3, c4 = st.columns([1, 1])
+    use_arima = c3.checkbox("ARIMA (auto)", value=False, disabled=not HAS_PMDARIMA,
+                            help="Auto-ARIMA via pmdarima" + ("" if HAS_PMDARIMA else " — not installed"))
+    use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
+                            help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
+
+    # Early gate remains after toggles so they are visible on first visit
     if not run_button and "baseline_results" not in st.session_state:
         st.stop()
 
     # --- Run baselines ---
-    try:
-        results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
-        st.session_state["baseline_results"] = results
-    except Exception as e:
-        st.warning(f"Baseline run failed: {e}")
-        return
+    # try:
+    #     results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
+    #     st.session_state["baseline_results"] = results
+    # except Exception as e:
+    #     st.warning(f"Baseline run failed: {e}")
+    #     return
 
+    # results = st.session_state["baseline_results"]
+    # Optional: auto-refresh if the MA window changed
+
+    window_changed = st.session_state.get("baseline_window") != window
+
+    # Only compute baselines when user clicks the button, first time, or window changed
+    if run_button or "baseline_results" not in st.session_state or window_changed:
+        try:
+            results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
+            st.session_state["baseline_results"] = results
+            st.session_state["baseline_window"] = window  # remember the window we used
+        except Exception as e:
+            st.warning(f"Baseline run failed: {e}")
+            return  # avoid using undefined `results`
+
+    # Use the cached results for tables/plots below
     results = st.session_state["baseline_results"]
+
+
+    # ARIMA (safe defaults)
+    if use_arima:
+        try:
+            freq = st.session_state.get("freq")
+            # naive season length guess (optional, safe to skip)
+            m = 7 if freq in ("D", "B") else (12 if freq in ("MS", "M") else None)
+            seasonal = m is not None
+            arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
+            yhat, lo, hi = forecast_auto_arima(arima_model, test_index=y_test.index)
+            results["ARIMA"] = {"y_pred": yhat, "lower": lo, "upper": hi}
+        except Exception as e:
+            st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
+
+    # Prophet
+    if use_prophet:
+        try:
+            prophet_model = train_prophet(y_train)
+            yhat, lo, hi = forecast_prophet(prophet_model, test_index=y_test.index)
+            results["Prophet"] = {"y_pred": yhat, "lower": lo, "upper": hi}
+        except Exception as e:
+            st.warning(f"Prophet failed: {type(e).__name__}: {e}")
+
+    st.session_state["baseline_results"] = results  
 
     # --- Metrics table ---
     try:
@@ -330,7 +363,7 @@ def render_models_page() -> None:
 
     # --- Exports ---
     st.subheader("Exports")
-    with st.expander("Download baseline predictions as CSV", expanded=True):
+    with st.expander("Download predictions as CSV", expanded=True):
         left, right = st.columns(2)
         # Let user choose which baseline to export (naïve or movavg)
         model_names = list(results.keys())
@@ -428,7 +461,7 @@ def render_compare_page() -> None:
         y_true = y_test.iloc[:H]
         metrics_df = compute_metrics_table(y_true=y_true, forecasts=forecasts)
         st.subheader("Leaderboard")
-        st.dataframe(metrics_df, use_container_width=True)
+        st.dataframe(metrics_df, width="stretch")
     except Exception as e:
         st.warning(f"Could not compute metrics: {e}")
         metrics_df = None

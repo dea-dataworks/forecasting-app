@@ -1,7 +1,6 @@
 from __future__ import annotations
 import warnings
 from typing import Optional, Tuple
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -15,6 +14,9 @@ try:
     from prophet import Prophet
 except Exception:
     Prophet = None
+
+HAS_PMDARIMA = pm is not None
+HAS_PROPHET  = Prophet is not None
 
 # Auto-ARIMA training: One small, focused function: fit on train only (no leakage), with simple knobs for seasonality.
 def train_auto_arima(
