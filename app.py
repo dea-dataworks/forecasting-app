@@ -2,7 +2,6 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 
-
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:
     st.set_page_config(
@@ -29,15 +28,13 @@ def sidebar_nav() -> str:
     )
 
     st.sidebar.divider()
-    density = st.sidebar.radio(
-        "Density",
-        options=["expanded", "compact"],
-        index=0 if st.session_state.get("density", "expanded") == "expanded" else 1,
-        horizontal=True,
-        help="Compact = tighter padding, slightly smaller fonts & plots",
+    st.sidebar.radio(
+    "Density",
+    options=["expanded", "compact"],
+    key="density",
+    horizontal=True,
+    help="Compact = tighter padding, slightly smaller fonts & plots",
     )
-    st.session_state["density"] = density
-
     return page
 
 # --- 4) Import smoke test (no logic calls) -----------------------------------
@@ -88,12 +85,58 @@ def render_data_page() -> None:
     df = st.session_state.df
     if df is not None:
         st.markdown("### Preview")
-        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(df.head(10), width="stretch")
         st.caption(f"Rows: {len(df):,} · Columns: {len(df.columns)} · Start: {df.index.min()} · End: {df.index.max()}")
+
+        # NEW: quick visual proof for density + fonts + plot/table sizing
+        _ui_diagnostics_block()
 
 def render_placeholder_page(name: str) -> None:
     st.markdown(f"### {name}")
     st.info(f"{name} page is coming soon. Shell only for Phase 7.")
+
+
+# --- UI diagnostics (temporary) ----------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
+
+def _ui_diagnostics_block():
+    # Local tiny config (kept here to avoid more helpers right now)
+    _cfg = {
+        "compact":  dict(plot_w=880, plot_h=340, title=16, label=12.5, legend=12, table_rows=10, row_px=26),
+        "expanded": dict(plot_w=960, plot_h=380, title=16.5, label=13.5, legend=13, table_rows=8,  row_px=32),
+    }
+    density = st.session_state.get("density", "expanded")
+    cfg = _cfg["compact" if density == "compact" else "expanded"]
+
+    with st.expander("🧪 UI Diagnostics (temporary)"):
+        st.write(f"**Density:** `{density}` · Plot target: {cfg['plot_w']}×{cfg['plot_h']} px · "
+                 f"Table ~{cfg['table_rows']} rows")
+
+        # --- Plot smoke test ---
+        # px → inches at 100 DPI
+        w_in, h_in = cfg["plot_w"] / 100.0, cfg["plot_h"] / 100.0
+        x = pd.date_range("2022-01-01", periods=120, freq="D")
+        y = pd.Series(np.sin(np.linspace(0, 8, len(x))) * 10 + 100, index=x)
+
+        fig, ax = plt.subplots(figsize=(w_in, h_in), dpi=100)
+        ax.plot(y.index, y.values)
+        ax.set_title("Density-sized plot", fontsize=cfg["title"])
+        ax.set_xlabel("Time", fontsize=cfg["label"])
+        ax.set_ylabel("Value", fontsize=cfg["label"])
+        ax.tick_params(axis="both", labelsize=max(10, int(cfg["label"] - 1)))
+        fig.patch.set_alpha(0.0)   # transparent for Light/Dark
+        ax.set_facecolor("none")
+        st.pyplot(fig, width="stretch")
+
+        # --- Table smoke test ---
+        df_demo = pd.DataFrame({"value": np.round(y.tail(30).values, 2)}, index=y.tail(30).index)
+        header_px = 42
+        rows_to_show = min(len(df_demo), cfg["table_rows"])
+        height_px = int(header_px + rows_to_show * cfg["row_px"])
+        st.dataframe(df_demo, width="stretch", height=height_px)
+        st.caption(f"Approx table height: {height_px}px (rows shown ≈ {rows_to_show})")
+
 
 # --- 7) Main ------------------------------------------------------------------
 def main() -> None:

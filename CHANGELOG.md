@@ -87,3 +87,20 @@ Phase 7: Streamlit Shell & Wiring
         -main() → orchestrator: sets page config, initializes state keys, runs sidebar, routes pages.
 - Guardrails: no backend logic wired yet, imports tested to avoid runtime errors, safe handling if no data loaded.
 - Output: functional Streamlit shell with navigation and placeholders, ready for Phase 9 integration.
+
+Phase 8: Streamlit Styling & Density Toggle
+
+- Enhanced UI styling in src/ui.css:
+
+        -Integrated Inter font (with fallbacks).
+        -Standardized padding, table row height, and spacing.
+        -Added brand color constant in src/theme.py for consistent plots.
+- Added compact/expanded view toggle:
+        -Sidebar radio to switch density.
+        -_inject_density_css() helper injects CSS + body class.
+        -get_density_cfg() (planned) or inline dict supplies plot/table sizing tokens.
+- Guardrails: 
+        -Session state persists density choice across tabs.
+        -CSS injection fails safe with warning (no crash if file missing).
+        -Transparent plot backgrounds ensure Light/Dark mode compatibility.
+- Output: consistent font, colors, and density-aware plots/tables across all app pages.
