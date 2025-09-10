@@ -155,18 +155,81 @@ def render_data_page() -> None:
         st.warning(f"Frequency inference issue: {e}")
         freq_report = {"freq": None, "gaps": None, "expected_points": None, "gap_ratio": None, "is_monotonic": False}
 
-    with st.expander("Sampling frequency & gaps", expanded=True):
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
-        c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
-        c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
-        gr = freq_report.get("gap_ratio")
-        c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
+    # Compute summary early so we can render it inside the "Sampling frequency & gaps" expander
+    try:
+        summary = summarize_dataset(df_idx)
+        st.session_state.summary = summary
+    except Exception as e:
+        summary = None
+        st.warning(f"Summary unavailable: {e}")
 
+    with st.expander("Sampling frequency & gaps", expanded=True):
+        if summary:
+            left, right = st.columns(2)
+            left.write(
+                f"**Rows:** {summary['rows']:,}  "
+                f"\n**Columns:** {summary['cols']}  "
+                f"\n**Start:** {summary['start']}  "
+                f"\n**End:** {summary['end']}"
+            )
+            right.write(
+                f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+                f"\n**Missing timestamps:** {summary['gaps']}  "
+                f"\n**Expected timestamps:** {summary['expected_points']}  "
+                f"\n**% missing timestamps:** {summary['gap_ratio']}  "
+                )
+
+        # Keep helpful nudges under the summary
         if not freq_report.get("is_monotonic", False):
             st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
         if freq_report.get("freq") is None:
             st.info("No clear frequency detected. You can regularize below to help models.")
+
+
+
+    # with st.expander("Sampling frequency & gaps", expanded=True):
+    #     c1, c2, c3, c4 = st.columns(4)
+    #     c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
+    #     c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
+    #     c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
+    #     gr = freq_report.get("gap_ratio")
+    #     c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
+
+    #     if not freq_report.get("is_monotonic", False):
+    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+    #     if freq_report.get("freq") is None:
+    #         st.info("No clear frequency detected. You can regularize below to help models.")
+
+    # with st.expander("Sampling frequency & gaps", expanded=True):
+    #     # Build a compact info table that merges dataset summary + gap diagnostics
+    #     rows = len(df_idx)
+    #     cols = df_idx.shape[1]
+    #     start = str(df_idx.index.min())
+    #     end = str(df_idx.index.max())
+    #     freq_alias = freq_report.get("freq")
+    #     gaps = freq_report.get("gaps")
+    #     expected = freq_report.get("expected_points")
+    #     gr = freq_report.get("gap_ratio")
+
+    #     info_rows = [
+    #         ("Rows", f"{rows:,}"),
+    #         ("Columns", f"{cols}"),
+    #         ("Start", start),
+    #         ("End", end),
+    #         ("Sampling frequency", to_human_freq(freq_alias)),
+    #         ("Missing timestamps", "—" if gaps is None else f"{gaps:,}"),
+    #         ("Expected timestamps", "—" if expected is None else f"{expected:,}"),
+    #         ("% missing timestamps", "—" if not isinstance(gr, float) else f"{gr:.2%}"),
+    #     ]
+    #     info_df = pd.DataFrame(info_rows, columns=["Metric", "Value"])
+    #     st.dataframe(info_df, use_container_width=True, hide_index=True)
+
+    #     # Keep the helpful nudges under the table
+    #     if not freq_report.get("is_monotonic", False):
+    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+    #     if freq_report.get("freq") is None:
+    #         st.info("No clear frequency detected. You can regularize below to help models.")
+
 
     with st.expander("ⓘ Definitions", expanded=False):
         st.markdown(
@@ -176,28 +239,6 @@ def render_data_page() -> None:
             "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
             "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
             )
-
-
-    # with st.expander("Sampling frequency & gaps", expanded=True):
-    #     left, right = st.columns([4, 1])
-
-    #     with left:
-    #         c1, c2, c3, c4 = st.columns(4)
-    #         c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
-    #         c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
-    #         c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
-    #         gr = freq_report.get("gap_ratio")
-    #         c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
-
-    #     with right:
-    #         with st.expander("ⓘ Definitions", expanded=False):
-    #             st.markdown(
-    #                 "- **Timestamp**: the date/time used as the index.\n"
-    #                 "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
-    #                 "- **Missing timestamps**: Dates absent from the index.\n"
-    #                 "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
-    #                 "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
-    #             )
 
         if not freq_report.get("is_monotonic", False):
             st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
@@ -367,23 +408,24 @@ def render_data_page() -> None:
         summary = None
         st.warning(f"Summary unavailable: {e}")
 
-    # Keep summary as its own expander (no table inside)
-    with st.expander("📋 Dataset summary", expanded=True):
-        if summary:
-            left, right = st.columns(2)
-            left.write(
-                f"**Rows:** {summary['rows']:,}  "
-                f"\n**Cols:** {summary['cols']}  "
-                f"\n**Start:** {summary['start']}  "
-                f"\n**End:** {summary['end']}"
-            )
-            right.write(
-                f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-                f"\n**Missing timestamps:** {summary['gaps']}  "
-                f"\n**% missing timestamps:** {summary['gap_ratio']}  "
-                f"\n**Top missing:** {summary['top_missing']}"
-            )
+    # # Keep summary as its own expander (no table inside)
+    # with st.expander("📋 Dataset summary", expanded=True):
+    #     if summary:
+    #         left, right = st.columns(2)
+    #         left.write(
+    #             f"**Rows:** {summary['rows']:,}  "
+    #             f"\n**Cols:** {summary['cols']}  "
+    #             f"\n**Start:** {summary['start']}  "
+    #             f"\n**End:** {summary['end']}"
+    #         )
+    #         right.write(
+    #             f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+    #             f"\n**Missing timestamps:** {summary['gaps']}  "
+    #             f"\n**% missing timestamps:** {summary['gap_ratio']}  "
+    #             f"\n**Top missing:** {summary['top_missing']}"
+    #         )
 
+    
     # New: lightweight preview, collapsed by default + last-5 peek
     with st.expander("Data preview (first 5 rows)", expanded=True):
         n_show = st.selectbox("Rows to show", options=[5, 10, 20], index=0)

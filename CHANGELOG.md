@@ -77,6 +77,13 @@ Slider now interprets percentage directly, with live caption: “H = … rows (�
 Added one-liner note: “last H points, no shuffling, simulates forecasting the future.”
 Validation added to nudge instead of crash when H ≤ 0 or H ≥ dataset length.
 
+Phase 16.5: Data preview (lighter by default)
+
+Preview moved into its own collapsed expander.
+Default shows first 5 rows, with dropdown toggle for 10/20.
+Added “Show last 5” button inside expander for quick split sanity-check.
+Reduces scrolling noise while keeping preview accessible when needed.
+
 
 
 
