@@ -53,6 +53,14 @@ Renamed metrics:
 Moved and expanded glossary to standalone “ⓘ Definitions” panel below metrics.
 Added inline help= text for frequency override and fill method widgets.
 
+Phase 16.2: Regularize to fixed frequency
+
+Replaced manual text input with dropdown of common frequencies (Daily, Weekly, Monthly, Quarterly, Yearly, Hourly).
+Added Advanced… option to enter custom pandas alias.
+Added checkbox (default off) to toggle regularization; shows gentle hint if gaps are detected.
+Improved Fill method dropdown with plain-language labels and descriptions.
+Aligned Frequency + Fill controls in the same row for cleaner UI.
+
 
 
 

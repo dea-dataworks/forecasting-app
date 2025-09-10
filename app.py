@@ -280,12 +280,25 @@ def render_data_page() -> None:
 
 
     # --- E) Target selection ---
+    # Promote & explain: this choice drives the rest of the app.
     num_cols = [c for c in df_idx.columns if pd.api.types.is_numeric_dtype(df_idx[c])]
     if not num_cols:
         st.error("No numeric columns found. Please upload data with at least one numeric value column.")
-        return
-    target_col = st.selectbox("Select target column", options=num_cols, index=0)
+        st.stop()
+
+    target_col = st.selectbox(
+        "Target (Y) column",
+        options=num_cols,
+        index=0,
+        help="This is the series we’ll forecast. Other columns remain available for reference."
+    )
     st.session_state.target_col = target_col
+
+    # Tiny status line under the selector
+    _col_dtype = str(df_idx[target_col].dtype)
+    _missing_pct = float(df_idx[target_col].isna().mean() * 100.0)
+    st.caption(f"dtype: {_col_dtype} • missing: {_missing_pct:.1f}%")
+
 
     # --- F) Train/Test split ---
     st.subheader("Train/Test split")
