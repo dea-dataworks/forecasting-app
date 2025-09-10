@@ -42,6 +42,16 @@ Updated app.py to forward sidebar density setting into comparison_run.
 Removed redundant manual rerun on density toggle.
 Guardrails: no deprecation warnings, stable single-click density switch, overlay plots persist after toggling.
 
+Phase 16.1: Frequency & gaps (rename + clarify)
+
+Added to_human_freq() helper to show plain-English labels (e.g., Daily, Weekly).
+Renamed metrics:
+        “Frequency” → Sampling frequency
+        “Gaps” → Missing timestamps (index gaps)
+        “Expected pts” → Expected timestamps
+        “Gap ratio” → % of missing timestamps
+Moved and expanded glossary to standalone “ⓘ Definitions” panel below metrics.
+Added inline help= text for frequency override and fill method widgets.
 
 
 

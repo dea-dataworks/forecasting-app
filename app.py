@@ -205,37 +205,79 @@ def render_data_page() -> None:
             st.info("No clear frequency detected. You can regularize below to help models.")
 
     # --- D) Optional regularization (second mutation) ---
-    reg_col1, reg_col2 = st.columns([2, 1])
-    do_reg = reg_col1.checkbox("Regularize to a fixed frequency", value=bool(freq_report.get("freq")))
-    picked_freq = reg_col1.text_input(
-        "Frequency (optional override)",
-        value=freq_report.get("freq") or "",
-        placeholder="e.g., D (daily), W (weekly), M (monthly)",
-        help="Leave blank to use the detected sampling frequency. "
-            "If you know the data should be Daily/Weekly/etc., enter a pandas alias (D, W, M, H).",
+    # Checkbox (default OFF). If there are gaps, nudge the user subtly.
+    do_reg = st.checkbox("Regularize to a fixed frequency", value=False)
+    if (freq_report.get("gaps") or 0) > 0:
+        st.caption(f"ⓘ We found {freq_report.get('gaps')} missing timestamps. Consider regularizing.")
+
+    # When enabled, show Frequency + Fill on the same row
+    freq_fill_col1, freq_fill_col2 = st.columns([2, 1])
+
+    # Mapping for human labels → pandas alias
+    _freq_menu = {
+        "Daily (D)": "D",
+        "Weekly (W)": "W",
+        "Monthly (M)": "M",
+        "Quarterly (Q)": "Q",
+        "Yearly (A)": "A",
+        "Hourly (H)": "H",
+        "Advanced…": "ADV",
+    }
+
+    # Choose sensible default based on detected freq; fall back to Advanced…
+    _detected = (freq_report.get("freq") or "").upper()
+    _default_label = next((lbl for lbl, al in _freq_menu.items() if al == _detected), "Advanced…")
+    freq_label = freq_fill_col1.selectbox(
+        "Frequency",
+        options=list(_freq_menu.keys()),
+        index=list(_freq_menu.keys()).index(_default_label),
         disabled=not do_reg,
-    )
-    fill = reg_col2.selectbox(
-        "Fill method",
-        ["ffill", "interpolate", "none"],
-        help="How to fill values created by resampling: "
-            "ffill = carry last value forward · interpolate = linear between points · none = leave as NaN",
-        disabled=not do_reg,
-        index=0,
+        help="Pick a common frequency. Use **Advanced…** for a custom pandas alias (e.g., MS, QS, 15T).",
     )
 
+    # If Advanced…, expose a tiny text input right below (still in the left column)
+    custom_alias = ""
+    if do_reg and _freq_menu[freq_label] == "ADV":
+        custom_alias = freq_fill_col1.text_input(
+            "Custom alias",
+            value=_detected if _detected not in _freq_menu.values() else "",
+            placeholder="e.g., MS, QS, 15T",
+            help="Pandas offset alias. Examples: MS (month-start), QS (quarter-start), 15T (15 minutes).",
+        ).strip()
+
+    # Fill method with friendly labels → internal values
+    _fill_map = {
+        "Forward fill — carry last known value forward.": "ffill",
+        "Interpolate (linear) — estimate between neighbors.": "interpolate",
+        "Leave as NaN — keep blanks.": "none",
+    }
+    fill_label = freq_fill_col2.selectbox(
+        "Fill method",
+        options=list(_fill_map.keys()),
+        index=0,
+        disabled=not do_reg,
+    )
+    fill = _fill_map[fill_label]
+
+    # Apply regularization if requested
     if do_reg:
-        if not picked_freq:
-            st.warning("Choose a frequency string to regularize.")
-            return
+        # Resolve final alias: menu pick or advanced text
+        chosen_alias = _freq_menu[freq_label]
+        if chosen_alias == "ADV":
+            if not custom_alias:
+                st.warning("Enter a custom frequency alias (e.g., MS, QS, 15T).")
+                st.stop()
+            chosen_alias = custom_alias
+
         try:
-            df_idx = regularize_and_fill(df_idx, picked_freq, fill=fill)
+            df_idx = regularize_and_fill(df_idx, chosen_alias, fill=fill)
             st.session_state.df = df_idx
-            # refresh report after regularization
+            # Refresh the frequency report after regularization
             freq_report = validate_frequency(df_idx.index)
         except Exception as e:
             st.error(f"Regularization failed: {e}")
-            return
+            st.stop()
+
 
     # --- E) Target selection ---
     num_cols = [c for c in df_idx.columns if pd.api.types.is_numeric_dtype(df_idx[c])]
