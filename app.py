@@ -11,6 +11,8 @@ from src.compare import (validate_horizon, make_future_index, generate_forecasts
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
 from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
 
+
+
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:
     st.set_page_config(
@@ -83,6 +85,26 @@ def _inject_density_css(density_value: str) -> None:
         unsafe_allow_html=True,
     )
 
+# --- UI helpers  ---
+_FREQUENCY_LABELS = {
+    "B": "Business daily",
+    "D": "Daily",
+    "W": "Weekly",
+    "M": "Monthly (month-end)",
+    "MS": "Monthly (month-start)",
+    "Q": "Quarterly (quarter-end)",
+    "QS": "Quarterly (quarter-start)",
+    "A": "Annual (year-end)",
+    "AS": "Annual (year-start)",
+    "H": "Hourly",
+    "T": "Minutely",
+    "S": "Secondly",
+}
+def to_human_freq(alias: str | None) -> str:
+    if not alias:
+        return "-"
+    return _FREQUENCY_LABELS.get(str(alias), str(alias))
+
 # --- 5) Sample data loader (button) ------------------------------------------
 def load_sample_button() -> None:
     st.subheader("Data")
@@ -133,13 +155,50 @@ def render_data_page() -> None:
         st.warning(f"Frequency inference issue: {e}")
         freq_report = {"freq": None, "gaps": None, "expected_points": None, "gap_ratio": None, "is_monotonic": False}
 
-    with st.expander("ℹ️ Detected frequency & gaps", expanded=True):
-        cols = st.columns(4)
-        cols[0].metric("Frequency", freq_report.get("freq") or "Unknown")
-        cols[1].metric("Gaps", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
-        cols[2].metric("Expected pts", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
+    with st.expander("Sampling frequency & gaps", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
+        c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
+        c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
         gr = freq_report.get("gap_ratio")
-        cols[3].metric("Gap ratio", f"{gr:.2%}" if isinstance(gr, float) else "—")
+        c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
+
+        if not freq_report.get("is_monotonic", False):
+            st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+        if freq_report.get("freq") is None:
+            st.info("No clear frequency detected. You can regularize below to help models.")
+
+    with st.expander("ⓘ Definitions", expanded=False):
+        st.markdown(
+            "- **Timestamp**: the date/time used as the index.\n"
+            "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
+            "- **Missing timestamps**: Dates absent from the index.\n"
+            "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
+            "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
+            )
+
+
+    # with st.expander("Sampling frequency & gaps", expanded=True):
+    #     left, right = st.columns([4, 1])
+
+    #     with left:
+    #         c1, c2, c3, c4 = st.columns(4)
+    #         c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
+    #         c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
+    #         c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
+    #         gr = freq_report.get("gap_ratio")
+    #         c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
+
+    #     with right:
+    #         with st.expander("ⓘ Definitions", expanded=False):
+    #             st.markdown(
+    #                 "- **Timestamp**: the date/time used as the index.\n"
+    #                 "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
+    #                 "- **Missing timestamps**: Dates absent from the index.\n"
+    #                 "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
+    #                 "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
+    #             )
+
         if not freq_report.get("is_monotonic", False):
             st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
         if freq_report.get("freq") is None:
@@ -149,12 +208,21 @@ def render_data_page() -> None:
     reg_col1, reg_col2 = st.columns([2, 1])
     do_reg = reg_col1.checkbox("Regularize to a fixed frequency", value=bool(freq_report.get("freq")))
     picked_freq = reg_col1.text_input(
-        "Frequency (pandas offset alias, e.g., D, W, M, H)",
+        "Frequency (optional override)",
         value=freq_report.get("freq") or "",
-        placeholder="e.g., D for daily",
+        placeholder="e.g., D (daily), W (weekly), M (monthly)",
+        help="Leave blank to use the detected sampling frequency. "
+            "If you know the data should be Daily/Weekly/etc., enter a pandas alias (D, W, M, H).",
         disabled=not do_reg,
     )
-    fill = reg_col2.selectbox("Fill method", ["ffill", "interpolate", "none"], disabled=not do_reg, index=0)
+    fill = reg_col2.selectbox(
+        "Fill method",
+        ["ffill", "interpolate", "none"],
+        help="How to fill values created by resampling: "
+            "ffill = carry last value forward · interpolate = linear between points · none = leave as NaN",
+        disabled=not do_reg,
+        index=0,
+    )
 
     if do_reg:
         if not picked_freq:
@@ -209,7 +277,12 @@ def render_data_page() -> None:
         if summary:
             left, right = st.columns(2)
             left.write(f"**Rows:** {summary['rows']:,}  \n**Cols:** {summary['cols']}  \n**Start:** {summary['start']}  \n**End:** {summary['end']}")
-            right.write(f"**Freq:** {summary['freq']}  \n**Gaps:** {summary['gaps']}  \n**Gap ratio:** {summary['gap_ratio']}  \n**Top missing:** {summary['top_missing']}")
+            right.write(
+                    f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+                    f"\n**Missing timestamps:** {summary['gaps']}  "
+                    f"\n**% missing timestamps:** {summary['gap_ratio']}  "
+                    f"\n**Top missing:** {summary['top_missing']}"
+                )
         st.dataframe(df_idx.head(10), width="stretch")
         st.caption(f"Target: `{target_col}` · Train: {len(y_train):,} · Test: {len(y_test):,}")
 

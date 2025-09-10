@@ -33,6 +33,14 @@ Updated app.py Models & Compare pages:
         Added CI model selector where intervals are available.
 Output: Unified overlay chart with optional CI bands, readable in both modes.
 
+Phase 15: Streamlit Polish
+
+Updated comparison_run in compare.py:
+        Added density parameter and passed through to plot_overlay for consistent compact/expanded rendering.
+        Corrected argument order in validate_horizon call.
+Updated app.py to forward sidebar density setting into comparison_run.
+Removed redundant manual rerun on density toggle.
+Guardrails: no deprecation warnings, stable single-click density switch, overlay plots persist after toggling.
 
 
 
