@@ -309,23 +309,24 @@ def render_data_page() -> None:
 
     # Split type with plain-English help
     split_type = st.radio(
-        "Split type",
-        options=["fraction", "count"],
+        "Select split type",
+        options=["percentage", "count"],
         horizontal=True,
-        help="• Fraction — Reserve the last X% of rows for testing.\n"
-            "• Count — Reserve the last N rows for testing."
+        help="• Percentage : Reserve the last X% of rows for testing.\n"
+            "• Count: Reserve the last N rows for testing."
     )
 
     n_rows = len(df_idx)
 
-    if split_type == "fraction":
-        frac = st.slider(
-            "Test size (fraction of rows)",
-            min_value=0.05, max_value=0.5, value=0.20, step=0.05
+    if split_type == "percentage":
+        perc = st.slider(
+            "Test size (% of rows)",
+            min_value=5, max_value=50, value=20, step=5
         )
+        pct = float(perc)
+        frac = pct / 100.0
         test_size = float(frac)
         H = max(1, int(round(n_rows * frac)))
-        pct = frac * 100.0
     else:
         # Allow up to n_rows-1 but cap early to avoid invalid selections
         max_count = max(1, n_rows - 1)
@@ -366,18 +367,33 @@ def render_data_page() -> None:
         summary = None
         st.warning(f"Summary unavailable: {e}")
 
+    # Keep summary as its own expander (no table inside)
     with st.expander("📋 Dataset summary", expanded=True):
         if summary:
             left, right = st.columns(2)
-            left.write(f"**Rows:** {summary['rows']:,}  \n**Cols:** {summary['cols']}  \n**Start:** {summary['start']}  \n**End:** {summary['end']}")
+            left.write(
+                f"**Rows:** {summary['rows']:,}  "
+                f"\n**Cols:** {summary['cols']}  "
+                f"\n**Start:** {summary['start']}  "
+                f"\n**End:** {summary['end']}"
+            )
             right.write(
-                    f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-                    f"\n**Missing timestamps:** {summary['gaps']}  "
-                    f"\n**% missing timestamps:** {summary['gap_ratio']}  "
-                    f"\n**Top missing:** {summary['top_missing']}"
-                )
-        st.dataframe(df_idx.head(10), width="stretch")
-        st.caption(f"Target: `{target_col}` · Train: {len(y_train):,} · Test: {len(y_test):,}")
+                f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+                f"\n**Missing timestamps:** {summary['gaps']}  "
+                f"\n**% missing timestamps:** {summary['gap_ratio']}  "
+                f"\n**Top missing:** {summary['top_missing']}"
+            )
+
+    # New: lightweight preview, collapsed by default + last-5 peek
+    with st.expander("Data preview (first 5 rows)", expanded=True):
+        n_show = st.selectbox("Rows to show", options=[5, 10, 20], index=0)
+        st.dataframe(df_idx.head(n_show), width="stretch")
+
+        if st.button("Show last 5", help="Peek at the last rows to sanity-check the split."):
+            st.dataframe(df_idx.tail(5), width="stretch")
+
+    # Keep this quick status line visible
+    st.caption(f"Target: `{target_col}` · Train: {len(y_train):,} · Test: {len(y_test):,}")
 
     st.success("Data is ready. You can open EDA or Models.")
 

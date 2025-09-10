@@ -69,6 +69,17 @@ Added a compact status line showing dtype and % missing for the chosen column.
 Kept Target section above Train/Test to emphasize importance.
 Status line now explicitly shows: Selected target: <col> | dtype | missing %.
 
+Phase 16.4: Train/Test split (plain-English & dynamic feedback)
+
+Reworked Train/Test split controls with radio for Percentage or Count.
+Added plain-English help text clarifying each option.
+Slider now interprets percentage directly, with live caption: “H = … rows (≈ …%)”.
+Added one-liner note: “last H points, no shuffling, simulates forecasting the future.”
+Validation added to nudge instead of crash when H ≤ 0 or H ≥ dataset length.
+
+
+
+
 
 
 Phase 1 — Data Input & Validation
