@@ -306,14 +306,48 @@ def render_data_page() -> None:
 
     # --- F) Train/Test split ---
     st.subheader("Train/Test split")
-    split_type = st.radio("Split type", options=["fraction", "count"], horizontal=True)
+
+    # Split type with plain-English help
+    split_type = st.radio(
+        "Split type",
+        options=["fraction", "count"],
+        horizontal=True,
+        help="• Fraction — Reserve the last X% of rows for testing.\n"
+            "• Count — Reserve the last N rows for testing."
+    )
+
+    n_rows = len(df_idx)
+
     if split_type == "fraction":
-        frac = st.slider("Test size (fraction of rows)", min_value=0.05, max_value=0.5, value=0.2, step=0.05)
+        frac = st.slider(
+            "Test size (fraction of rows)",
+            min_value=0.05, max_value=0.5, value=0.20, step=0.05
+        )
         test_size = float(frac)
+        H = max(1, int(round(n_rows * frac)))
+        pct = frac * 100.0
     else:
-        max_count = max(1, min(365, len(df_idx) // 2))
-        cnt = st.slider("Test size (last N rows)", min_value=1, max_value=max_count, value=min(30, max_count))
+        # Allow up to n_rows-1 but cap early to avoid invalid selections
+        max_count = max(1, n_rows - 1)
+        default_cnt = min(40, max_count)
+        cnt = st.slider("Test size (last N rows)", min_value=1, max_value=max_count, value=default_cnt)
         test_size = int(cnt)
+        H = test_size
+        pct = (H / n_rows) * 100.0 if n_rows else 0.0
+
+    # Live interpretation right under the widget
+    st.caption(f"**H = {H} rows (≈ {pct:.0f}% of data)**")
+
+    # One-liner note about how we split
+    st.caption("We always take the **last H points** as test (no shuffling) to simulate forecasting the future.")
+
+    # Validation nudges (friendly, no crashes)
+    if H <= 0:
+        st.warning("Pick a positive test size for H.")
+        st.stop()
+    if H >= n_rows:
+        st.warning(f"Test set (H={H}) cannot be the entire dataset. Reduce H below {n_rows}.")
+        st.stop()
 
     try:
         y_train, y_test = train_test_split_ts(df_idx, target_col=target_col, test_size=test_size)

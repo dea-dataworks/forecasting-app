@@ -60,7 +60,14 @@ Added Advanced… option to enter custom pandas alias.
 Added checkbox (default off) to toggle regularization; shows gentle hint if gaps are detected.
 Improved Fill method dropdown with plain-language labels and descriptions.
 Aligned Frequency + Fill controls in the same row for cleaner UI.
+Status line now explicitly shows: Selected target: <col> | dtype | missing %.
 
+Phase 16.3: Select target column (promote & explain)
+
+Renamed selector to “Target (Y) column” and added help text clarifying its role.
+Added a compact status line showing dtype and % missing for the chosen column.
+Kept Target section above Train/Test to emphasize importance.
+Status line now explicitly shows: Selected target: <col> | dtype | missing %.
 
 
 
