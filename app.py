@@ -469,7 +469,7 @@ def render_compare_page() -> None:
 
     # ---- Validate horizon & make future index (shared across models)
     try:
-        H = validate_horizon(y_test, h)
+        H = validate_horizon(h, y_test)
     except Exception as e:
         st.warning(f"Horizon invalid: {e}")
         return
@@ -490,8 +490,6 @@ def render_compare_page() -> None:
     except Exception as e:
         st.warning(f"Forecast generation failed: {e}")
         return
-
-    forecasts = st.session_state["compare_cache"]["forecasts"]
 
     forecasts = st.session_state["compare_cache"]["forecasts"]
 
@@ -526,8 +524,8 @@ def render_compare_page() -> None:
     # ---- Overlay plot
     try:
         # Offer CI only for models that have lower+upper aligned to y_test[:H]
-        lower = lower if isinstance(lower, dict) else {}
-        upper = upper if isinstance(upper, dict) else {}
+        lower: dict[str, pd.Series] = {}
+        upper: dict[str, pd.Series] = {}
 
         ci_candidates = sorted(set(lower.keys()) & set(upper.keys()) & set(forecasts.keys()))
         ci_options = ["(none)"] + ci_candidates

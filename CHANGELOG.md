@@ -21,6 +21,21 @@ app.py
                 Output: Stable, sortable leaderboard (MAE/RMSE/MAPE; optional sMAPE/MASE) clearly tied to the current horizon.
 
 
+Phase 14: Plots
+
+Extended plot_overlay() in compare.py:
+        Added optional lower/upper dicts for confidence interval shading.
+        Added ci_model parameter to select one model for CI display.
+        Added density mode (compact / expanded) for consistent sizing and labels.
+        Downsampling guard: always use train tail instead of full history.
+Updated app.py Models & Compare pages:
+        Wired density toggle from session state into overlay plots.
+        Added CI model selector where intervals are available.
+Output: Unified overlay chart with optional CI bands, readable in both modes.
+
+
+
+
 
 
 Phase 1 — Data Input & Validation

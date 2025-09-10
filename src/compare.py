@@ -466,7 +466,8 @@ def comparison_run(
     y_test: pd.Series,
     models: Dict[str, Any],
     horizon: int,
-    freq: str
+    freq: str,
+    density: str = "expanded",
 ) -> Tuple[pd.DataFrame, Dict[str, pd.Series], "plt.Figure"]:
     """
     Orchestrate Phase 5:
@@ -499,7 +500,7 @@ def comparison_run(
             Overlay plot for visual comparison.
     """
     # 1) validate horizon
-    h = validate_horizon(y_test, horizon)
+    h = validate_horizon(horizon, y_test)
 
     # 2) aligned forecasts
     last_ts = pd.Timestamp(y_train.index[-1])
@@ -509,6 +510,12 @@ def comparison_run(
     metrics_df = compute_metrics_table(y_true=y_test, forecasts=forecasts)
 
     # 4) overlay plot
-    fig = plot_overlay(y_train=y_train, y_test=y_test, forecasts=forecasts, tail=200)
+    fig = plot_overlay(
+        y_train=y_train,
+        y_test=y_test,
+        forecasts=forecasts,
+        tail=200,
+        density=density,
+    )
 
     return metrics_df, forecasts, fig
