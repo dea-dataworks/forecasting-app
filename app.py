@@ -32,9 +32,7 @@ def init_state_keys() -> None:
 # --- 3) Sidebar navigation ----------------------------------------------------
 def sidebar_nav() -> str:
     st.sidebar.title("Navigation")
-    def _on_density_change():
-        st.rerun()
-    
+
     page = st.sidebar.radio(
         "Go to",
         options=("Data", "EDA", "Models", "Compare"),
@@ -43,11 +41,10 @@ def sidebar_nav() -> str:
     )
 
     st.sidebar.divider()
-    st.sidebar.radio("Density", 
+    st.sidebar.radio("Compact Mode", 
                     options=["expanded", "compact"],
                     key="density", horizontal=True,
                     help="Compact = tighter padding, slightly smaller fonts & plots",
-                    on_change=_on_density_change,
                     )
     return page
 
@@ -64,7 +61,7 @@ def warn(context: str, e: Exception):
 
 # --- Inject CSS + a body class based on the toggle ---------------------------
 def _inject_density_css(density_value: str) -> None:
-    # Load tiny stylesheet; warn if missing but don't break the app
+    # 1) Base stylesheet (shared rules)
     try:
         css_path = Path(__file__).with_name("ui.css")
         css = css_path.read_text(encoding="utf-8")
@@ -72,18 +69,29 @@ def _inject_density_css(density_value: str) -> None:
     except Exception as e:
         st.sidebar.warning(f"UI CSS not found: {e}")
 
-    # Set a body class so CSS can target compact/expanded
-    st.markdown(
-        f"""
-        <script>
-        const clsCompact = 'density-compact';
-        const clsExpanded = 'density-expanded';
-        document.body.classList.remove(clsCompact, clsExpanded);
-        document.body.classList.add('{ "density-compact" if density_value=="compact" else "density-expanded" }');
-        </script>
-        """,
-        unsafe_allow_html=True,
-    )
+    # 2) Compact overrides (conditionally injected; no JS)
+    if str(density_value).lower() == "compact":
+        try:
+            compact_path = Path(__file__).with_name("ui_compact.css")
+            if compact_path.exists():
+                compact_css = compact_path.read_text(encoding="utf-8")
+                st.markdown(f"<style>{compact_css}</style>", unsafe_allow_html=True)
+            else:
+                # Minimal inline fallback so you see an effect immediately
+                st.markdown(
+                    """
+                    <style>
+                      .block-container { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+                      section[data-testid="stSidebar"] { padding-top: 0.25rem; }
+                      .stMarkdown p { margin-bottom: 0.25rem; }
+                      .stButton button, .stDownloadButton button { padding: 0.25rem 0.5rem; }
+                      .stDataFrame table { font-size: 0.9rem; }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        except Exception as e:
+            st.sidebar.warning(f"Compact CSS load failed: {e}")
 
 # --- UI helpers  ---
 _FREQUENCY_LABELS = {
@@ -140,13 +148,20 @@ def render_data_page() -> None:
         return
 
     # --- B) Detect datetime index (first mutation) ---
-    try:
-        df_idx, chosen_col = detect_datetime(df_raw)  # sets DatetimeIndex, sorted
-    except Exception as e:
-        st.error(f"Datetime detection failed: {e}")
-        return
+    if isinstance(df_raw.index, pd.DatetimeIndex):
+        # Already parsed earlier (e.g., after coming back from EDA); don't re-detect
+        df_idx = df_raw
+        chosen_col = st.session_state.get("datetime_col")
+    else:
+        try:
+            df_idx, chosen_col = detect_datetime(df_raw)  # sets DatetimeIndex, sorted
+        except Exception as e:
+            st.error(f"Datetime detection failed: {e}")
+            return
+        st.session_state.datetime_col = chosen_col
+
     st.session_state.df = df_idx
-    st.session_state.datetime_col = chosen_col
+
 
     # --- C) Frequency report (read-only) ---
     try:
@@ -189,52 +204,6 @@ def render_data_page() -> None:
         if freq_report.get("freq") is None:
             st.info("No clear frequency detected. You can regularize below to help models.")
 
-
-
-    # with st.expander("Sampling frequency & gaps", expanded=True):
-    #     c1, c2, c3, c4 = st.columns(4)
-    #     c1.metric("Sampling frequency", to_human_freq(freq_report.get("freq")))
-    #     c2.metric("Missing timestamps (index gaps)", str(freq_report.get("gaps")) if freq_report.get("gaps") is not None else "—")
-    #     c3.metric("Expected timestamps", str(freq_report.get("expected_points")) if freq_report.get("expected_points") is not None else "—")
-    #     gr = freq_report.get("gap_ratio")
-    #     c4.metric("% of missing timestamps", f"{gr:.2%}" if isinstance(gr, float) else "—")
-
-    #     if not freq_report.get("is_monotonic", False):
-    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-    #     if freq_report.get("freq") is None:
-    #         st.info("No clear frequency detected. You can regularize below to help models.")
-
-    # with st.expander("Sampling frequency & gaps", expanded=True):
-    #     # Build a compact info table that merges dataset summary + gap diagnostics
-    #     rows = len(df_idx)
-    #     cols = df_idx.shape[1]
-    #     start = str(df_idx.index.min())
-    #     end = str(df_idx.index.max())
-    #     freq_alias = freq_report.get("freq")
-    #     gaps = freq_report.get("gaps")
-    #     expected = freq_report.get("expected_points")
-    #     gr = freq_report.get("gap_ratio")
-
-    #     info_rows = [
-    #         ("Rows", f"{rows:,}"),
-    #         ("Columns", f"{cols}"),
-    #         ("Start", start),
-    #         ("End", end),
-    #         ("Sampling frequency", to_human_freq(freq_alias)),
-    #         ("Missing timestamps", "—" if gaps is None else f"{gaps:,}"),
-    #         ("Expected timestamps", "—" if expected is None else f"{expected:,}"),
-    #         ("% missing timestamps", "—" if not isinstance(gr, float) else f"{gr:.2%}"),
-    #     ]
-    #     info_df = pd.DataFrame(info_rows, columns=["Metric", "Value"])
-    #     st.dataframe(info_df, use_container_width=True, hide_index=True)
-
-    #     # Keep the helpful nudges under the table
-    #     if not freq_report.get("is_monotonic", False):
-    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-    #     if freq_report.get("freq") is None:
-    #         st.info("No clear frequency detected. You can regularize below to help models.")
-
-
     with st.expander("ⓘ Definitions", expanded=False):
         st.markdown(
             "- **Timestamp**: the date/time used as the index.\n"
@@ -243,11 +212,6 @@ def render_data_page() -> None:
             "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
             "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
             )
-
-        # if not freq_report.get("is_monotonic", False):
-        #     st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-        # if freq_report.get("freq") is None:
-        #     st.info("No clear frequency detected. You can regularize below to help models.")
 
     # --- D) Optional regularization (second mutation) ---
     # Checkbox (default OFF). If there are gaps, nudge the user subtly.
@@ -403,32 +367,6 @@ def render_data_page() -> None:
     except Exception as e:
         st.error(f"Split failed: {e}")
         return
-
-    # # --- G) Summary + preview ---
-    # try:
-    #     summary = summarize_dataset(df_idx)
-    #     st.session_state.summary = summary
-    # except Exception as e:
-    #     summary = None
-    #     st.warning(f"Summary unavailable: {e}")
-
-    # # Keep summary as its own expander (no table inside)
-    # with st.expander("📋 Dataset summary", expanded=True):
-    #     if summary:
-    #         left, right = st.columns(2)
-    #         left.write(
-    #             f"**Rows:** {summary['rows']:,}  "
-    #             f"\n**Cols:** {summary['cols']}  "
-    #             f"\n**Start:** {summary['start']}  "
-    #             f"\n**End:** {summary['end']}"
-    #         )
-    #         right.write(
-    #             f"**Sampling freq:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-    #             f"\n**Missing timestamps:** {summary['gaps']}  "
-    #             f"\n**% missing timestamps:** {summary['gap_ratio']}  "
-    #             f"\n**Top missing:** {summary['top_missing']}"
-    #         )
-
     
     # New: lightweight preview, collapsed by default + last-5 peek
     with st.expander("Data preview (first 5 rows)", expanded=True):
@@ -524,16 +462,6 @@ def render_models_page() -> None:
         st.stop()
 
     # --- Run baselines ---
-    # try:
-    #     results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
-    #     st.session_state["baseline_results"] = results
-    # except Exception as e:
-    #     st.warning(f"Baseline run failed: {e}")
-    #     return
-
-    # results = st.session_state["baseline_results"]
-    # Optional: auto-refresh if the MA window changed
-
     window_changed = st.session_state.get("baseline_window") != window
 
     # Only compute baselines when user clicks the button, first time, or window changed
@@ -754,7 +682,6 @@ def render_compare_page() -> None:
         metrics_df = None
 
     # ---- Overlay plot
-    # ---- Overlay plot
     try:
         # Offer CI only for models that have lower+upper aligned to y_test[:H]
         lower: dict[str, pd.Series] = {}
@@ -823,7 +750,7 @@ def main() -> None:
     import_smoke_test()
 
     page = sidebar_nav()    
-    _inject_density_css(st.session_state["density"])
+    _inject_density_css(str(st.session_state.get("density", "expanded")).lower())
                         
     st.title("📈 Forecasting App")
 

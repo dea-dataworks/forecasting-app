@@ -70,7 +70,7 @@ def detect_datetime(df):
         for c in df.columns:
             if df[c].dtype == object or c.lower() in candidate_names:
                 try:
-                    parsed = pd.to_datetime(df[c], errors="coerce", infer_datetime_format=True)
+                    parsed = pd.to_datetime(df[c], errors="coerce")
                     ok = parsed.notna().mean()
                     if ok > 0.95:  # at least 95% parseable
                         scores[c] = ok
@@ -91,7 +91,7 @@ def detect_datetime(df):
     # Step 4: parse and set index
     df_out = df.copy()
     if not is_datetime64_any_dtype(df_out[chosen]):
-        df_out[chosen] = pd.to_datetime(df_out[chosen], errors="coerce", infer_datetime_format=True)
+        df_out[chosen] = pd.to_datetime(df_out[chosen], errors="coerce")
 
     if df_out[chosen].isna().any():
         raise ValueError(f"Datetime parsing failed for column '{chosen}'.")
