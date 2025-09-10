@@ -14,44 +14,68 @@ def build_forecast_table(
     upper_ci: Optional[ArrayLike] = None,
 ) -> pd.DataFrame:
     """
-    Create a tidy forecast table with aligned dates and values.
+    Build a tidy forecast table with optional confidence intervals.
 
-    Columns:
-      - date (datetime64)
-      - forecast (float)
-      - lower_ci (float, optional)
-      - upper_ci (float, optional)
+    Output columns:
+      - 'date' (from DatetimeIndex)
+      - 'forecast' (point predictions)
+      - 'lower' (optional)
+      - 'upper' (optional)
 
-    Requirements:
-      - `index` must be a DatetimeIndex
-      - All provided arrays must match len(index)
+    Guardrails:
+      - Enforces DatetimeIndex.
+      - Aligns/validates lengths; drops CI columns if misaligned.
     """
-    if not isinstance(index, pd.DatetimeIndex):
-        raise TypeError("index must be a pandas DatetimeIndex")
+    # --- helpers (local to avoid external deps) ---
+    def _to_1d_series(x: ArrayLike, name: str, n: int) -> pd.Series:
+        if isinstance(x, pd.Series):
+            s = x.reset_index(drop=True)
+        elif isinstance(x, np.ndarray):
+            s = pd.Series(x.ravel())
+        else:
+            s = pd.Series(list(x) if x is not None else [])
+        if len(s) != n:
+            raise ValueError(f"{name} length {len(s)} != expected length {n}")
+        return s
 
+    # --- inputs & basic checks ---
+    if not isinstance(index, pd.DatetimeIndex):
+        raise TypeError("index must be a pandas.DatetimeIndex")
     n = len(index)
 
-    def _to_1d(a: ArrayLike, name: str) -> np.ndarray:
-        arr = a.values if isinstance(a, pd.Series) else np.asarray(a)
-        if arr.ndim != 1:
-            raise ValueError(f"{name} must be 1-D")
-        if len(arr) != n:
-            raise ValueError(f"{name} length ({len(arr)}) must match index length ({n})")
-        return arr.astype(float)
+    yhat = _to_1d_series(y_pred, "y_pred", n)
 
-    y_arr = _to_1d(y_pred, "y_pred")
-    df = pd.DataFrame({
-        "date": pd.to_datetime(index, utc=False),  # keep tz if present
-        "forecast": y_arr,
-    })
-
+    # Try to coerce CIs; if lengths mismatch, we skip them gracefully.
+    lower_s = upper_s = None
     if lower_ci is not None:
-        df["lower_ci"] = _to_1d(lower_ci, "lower_ci")
+        try:
+            lower_s = _to_1d_series(lower_ci, "lower_ci", n)
+        except Exception:
+            lower_s = None
     if upper_ci is not None:
-        df["upper_ci"] = _to_1d(upper_ci, "upper_ci")
+        try:
+            upper_s = _to_1d_series(upper_ci, "upper_ci", n)
+        except Exception:
+            upper_s = None
 
-    # Optional: ensure column order if both CIs present
-    cols = ["date", "forecast"] + [c for c in ["lower_ci", "upper_ci"] if c in df.columns]
+    # --- build frame ---
+    df = pd.DataFrame(
+        {
+            "date": pd.Index(index, name="date"),
+            "forecast": yhat.astype(float),
+        }
+    )
+    if lower_s is not None:
+        df["lower"] = lower_s.astype(float)
+    if upper_s is not None:
+        df["upper"] = upper_s.astype(float)
+
+    # Column order: date, forecast, (lower), (upper)
+    cols = ["date", "forecast"]
+    if "lower" in df.columns:
+        cols.append("lower")
+    if "upper" in df.columns:
+        cols.append("upper")
     return df[cols]
 
 def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
@@ -66,25 +90,56 @@ def dataframe_to_csv_bytes(df: pd.DataFrame) -> bytes:
     csv_str = df.to_csv(index=False)
     return csv_str.encode("utf-8")
 
-def figure_to_png_bytes(fig: Figure, dpi: int = 120) -> bytes:
+def figure_to_png_bytes(fig, dpi: int = 120) -> bytes:
     """
-    Convert a Matplotlib Figure into PNG bytes for download.
+    Serialize a Matplotlib Figure to PNG bytes.
+
+    - Uses tight bounding box to avoid excess padding.
+    - Preserves figure facecolor so dark/light themes look right in the PNG.
     """
+    import io
+
+    if fig is None:
+        raise ValueError("figure_to_png_bytes: 'fig' is None")
+
+    if hasattr(fig, "canvas") and hasattr(fig.canvas, "draw"):
+        fig.canvas.draw()
+
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    fig.savefig(
+        buf,
+        format="png",
+        dpi=dpi,
+        bbox_inches="tight",
+        facecolor=fig.get_facecolor(),
+        edgecolor="none",
+    )
     buf.seek(0)
     return buf.getvalue()
 
+
 def make_default_filenames(base: str = "forecast") -> dict:
     """
-    Build timestamped filenames for CSV and PNG exports.
-    Example: {'csv': 'forecast_20250909_101530.csv', 'png': 'forecast_20250909_101530.png'}
+    Return timestamped filenames for CSV and PNG as a dict:
+      {"csv": "<base>_YYYYMMDD-HHMMSS.csv", "png": "<base>_YYYYMMDD-HHMMSS.png"}
+
+    `base` should be short and safe (no spaces); caller can inject target/horizon.
     """
-    # Avoid spaces or funky chars in filenames
-    safe_base = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in base.strip())
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    import re
+    from datetime import datetime
+
+    # slugify `base`
+    s = str(base).strip().lower()
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"[^a-z0-9_\-]", "", s) or "export"
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    stem = f"{s}_{ts}"
     return {
-        "csv": f"{safe_base}_{ts}.csv",
-        "png": f"{safe_base}_{ts}.png",
+        "csv": f"{stem}.csv",
+        "png": f"{stem}.png",
     }
+
+
 
