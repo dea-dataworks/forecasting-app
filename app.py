@@ -18,7 +18,7 @@ def setup_page() -> None:
     st.set_page_config(
         page_title="Forecasting App",
         page_icon="📈",
-        layout="wide",
+        layout="centered",
         initial_sidebar_state="expanded",
     )
 
@@ -286,19 +286,23 @@ def render_data_page() -> None:
         st.error("No numeric columns found. Please upload data with at least one numeric value column.")
         st.stop()
 
+    # Subheader to make the target choice visually prominent
+    st.subheader("Target selection")
+
     target_col = st.selectbox(
-        "Target (Y) column",
+        "Select target (y) column",
         options=num_cols,
         index=0,
         help="This is the series we’ll forecast. Other columns remain available for reference."
     )
     st.session_state.target_col = target_col
 
-    # Tiny status line under the selector
+    # Clearer status line about the chosen target
     _col_dtype = str(df_idx[target_col].dtype)
     _missing_pct = float(df_idx[target_col].isna().mean() * 100.0)
-    st.caption(f"dtype: {_col_dtype} • missing: {_missing_pct:.1f}%")
-
+    st.caption(
+        f"Selected target: **{target_col}**  |  dtype = {_col_dtype}  |  missing = {_missing_pct:.1f}%"
+    )
 
     # --- F) Train/Test split ---
     st.subheader("Train/Test split")
