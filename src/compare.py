@@ -231,10 +231,17 @@ def generate_forecasts(
 
 def compute_metrics_table(
     y_true: pd.Series,
-    forecasts: Dict[str, pd.Series]
+    forecasts: Dict[str, pd.Series],
+    *,
+    include_smape: bool = False,
+    include_mase: bool = False,
+    y_train_for_mase: pd.Series | None = None,
+    sort_by: str = "RMSE",
+    ascending: bool = True,
+    eps: float = 1e-12,
 ) -> pd.DataFrame:
     """
-    Compute MAE, RMSE, and MAPE(%) for each model on the SAME aligned horizon.
+    Compute MAE, RMSE, MAPE(%) and optional sMAPE/MASE for each model on the SAME aligned horizon.
 
     Parameters
     ----------
@@ -242,20 +249,39 @@ def compute_metrics_table(
         Ground-truth test values with a DatetimeIndex.
     forecasts : dict[str, pd.Series]
         Model name -> forecast Series (must share the same future index length).
+    include_smape : bool, default False
+        If True, compute sMAPE (%).
+    include_mase : bool, default False
+        If True, compute MASE using a naive one-step benchmark on `y_train_for_mase`.
+    y_train_for_mase : pd.Series or None
+        Training series used to compute the naive MAE denominator for MASE. Required if include_mase=True.
+    sort_by : {"RMSE","MAE","MAPE%","sMAPE%","MASE"}, default "RMSE"
+        Column to sort by (ignored if not present).
+    ascending : bool, default True
+        Sort order.
+    eps : float, default 1e-12
+        Small constant to stabilize denominators.
 
     Returns
     -------
     pd.DataFrame
-        Rows = models, Cols = ['MAE', 'RMSE', 'MAPE%'], sorted by RMSE asc.
-
-    Notes
-    -----
-    - Aligns each forecast to y_true using the index intersection.
-    - MAPE safely ignores zero y_true entries; returns NaN if all zeros in window.
+        Rows = models; columns include ['MAE','RMSE','MAPE%'] plus optional ['sMAPE%','MASE'].
+        Sorted with NaNs pushed to the bottom.
     """
-    rows = []
+    # Precompute MASE denominator if requested and feasible
+    mase_den = None
+    if include_mase:
+        if y_train_for_mase is None or len(y_train_for_mase) < 2:
+            mase_den = np.nan
+        else:
+            ytr = pd.Series(y_train_for_mase, copy=False).astype("float64")
+            naive_err = (ytr.iloc[1:].to_numpy() - ytr.iloc[:-1].to_numpy())
+            mase_den = float(np.mean(np.abs(naive_err))) if len(naive_err) > 0 else np.nan
+            if mase_den <= eps:
+                mase_den = np.nan  # undefined / zero denominator
+
+    rows: list[dict[str, float]] = []
     for name, fcst in forecasts.items():
-        # Align on overlapping timestamps only
         idx = y_true.index.intersection(fcst.index)
         if len(idx) == 0:
             warnings.warn(f"{name}: no overlapping timestamps with y_true; skipping.")
@@ -264,11 +290,9 @@ def compute_metrics_table(
         yt = y_true.loc[idx].astype("float64")
         yp = fcst.loc[idx].astype("float64")
 
-        # Drop any positions with NaNs after alignment
         mask = yt.notna() & yp.notna()
         yt = yt[mask]
         yp = yp[mask]
-
         if len(yt) == 0:
             warnings.warn(f"{name}: no valid aligned points after NaN filtering; skipping.")
             continue
@@ -278,20 +302,35 @@ def compute_metrics_table(
         rmse = float(np.sqrt(np.mean(np.square(err))))
 
         # Safe MAPE: ignore zeros in denominator
-        nonzero = yt != 0
+        nonzero = np.abs(yt.to_numpy()) > eps
         if nonzero.any():
-            mape = float(np.mean(np.abs(err[nonzero] / yt[nonzero])) * 100.0)
+            mape = float(np.mean(np.abs(err.to_numpy()[nonzero] / yt.to_numpy()[nonzero])) * 100.0)
         else:
-            mape = np.nan  # undefined when all true values are zero
+            mape = np.nan
 
-        rows.append((name, mae, rmse, mape))
+        row = {"Model": name, "MAE": mae, "RMSE": rmse, "MAPE%": mape}
+
+        if include_smape:
+            denom = np.abs(yt.to_numpy()) + np.abs(yp.to_numpy()) + eps
+            smape = float(np.mean(2.0 * np.abs(err.to_numpy()) / denom) * 100.0)
+            row["sMAPE%"] = smape
+
+        if include_mase:
+            row["MASE"] = (mae / mase_den) if (mase_den is not None and not np.isnan(mase_den)) else np.nan
+
+        rows.append(row)
 
     if not rows:
         raise ValueError("No metrics computed; check alignment and inputs.")
 
-    df = pd.DataFrame(rows, columns=["Model", "MAE", "RMSE", "MAPE%"]).set_index("Model")
-    # Sort by RMSE for a conservative default; feel free to change to 'MAE'
-    df = df.sort_values(by="RMSE", ascending=True)
+    df = pd.DataFrame(rows).set_index("Model")
+
+    # Sort if the column exists; always push NaNs to the bottom
+    if sort_by in df.columns:
+        df = df.sort_values(by=sort_by, ascending=ascending, na_position="last")
+    else:
+        df = df.sort_values(by="RMSE", ascending=True, na_position="last")
+
     return df
 
 def plot_overlay(

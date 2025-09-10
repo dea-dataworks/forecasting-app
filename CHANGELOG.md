@@ -1,3 +1,14 @@
+v0.2
+
+Phase 12: Exports
+
+- Enhanced build_forecast_table() to include lower/upper columns when provided.
+- Confirmed figure_to_png_bytes() integration with overlay plots.git l
+- Standardized make_default_filenames() for timestamped CSV/PNG outputs.
+
+
+
+
 Phase 1 — Data Input & Validation
 
 - Implemented core functions in data_input.py:
