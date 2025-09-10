@@ -107,8 +107,8 @@ def to_human_freq(alias: str | None) -> str:
 
 # --- 5) Sample data loader (button) ------------------------------------------
 def load_sample_button() -> None:
-    st.subheader("Data")
-    st.caption("Use this to render something immediately before wiring CSV upload.")
+    # st.subheader("Data")
+    # st.caption("Use this to render something immediately before wiring CSV upload.")
     if st.button("Load sample data", type="primary"):
         dates = pd.date_range("2022-01-01", periods=60, freq="D")
         vals = pd.Series(100 + pd.Series(range(60)).rolling(3, min_periods=1).mean().values, index=dates)
@@ -172,12 +172,16 @@ def render_data_page() -> None:
                 f"\n**Start:** {summary['start']}  "
                 f"\n**End:** {summary['end']}"
             )
-            right.write(
-                f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-                f"\n**Missing timestamps:** {summary['gaps']}  "
-                f"\n**Expected timestamps:** {summary['expected_points']}  "
-                f"\n**% missing timestamps:** {summary['gap_ratio']}  "
-                )
+            gap_txt = (
+                    f"{summary['gap_ratio']:.2%}" if isinstance(summary.get('gap_ratio'), (int, float))
+                    else (summary.get('gap_ratio') or '—')
+        )
+        right.write(
+            f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+            f"\n**Missing timestamps:** {summary['gaps']}  "
+            f"\n**Expected timestamps:** {summary['expected_points']}  "
+            f"\n**% missing timestamps:** {gap_txt}"
+        )
 
         # Keep helpful nudges under the summary
         if not freq_report.get("is_monotonic", False):
@@ -240,10 +244,10 @@ def render_data_page() -> None:
             "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
             )
 
-        if not freq_report.get("is_monotonic", False):
-            st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-        if freq_report.get("freq") is None:
-            st.info("No clear frequency detected. You can regularize below to help models.")
+        # if not freq_report.get("is_monotonic", False):
+        #     st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+        # if freq_report.get("freq") is None:
+        #     st.info("No clear frequency detected. You can regularize below to help models.")
 
     # --- D) Optional regularization (second mutation) ---
     # Checkbox (default OFF). If there are gaps, nudge the user subtly.
@@ -400,13 +404,13 @@ def render_data_page() -> None:
         st.error(f"Split failed: {e}")
         return
 
-    # --- G) Summary + preview ---
-    try:
-        summary = summarize_dataset(df_idx)
-        st.session_state.summary = summary
-    except Exception as e:
-        summary = None
-        st.warning(f"Summary unavailable: {e}")
+    # # --- G) Summary + preview ---
+    # try:
+    #     summary = summarize_dataset(df_idx)
+    #     st.session_state.summary = summary
+    # except Exception as e:
+    #     summary = None
+    #     st.warning(f"Summary unavailable: {e}")
 
     # # Keep summary as its own expander (no table inside)
     # with st.expander("📋 Dataset summary", expanded=True):
@@ -436,8 +440,13 @@ def render_data_page() -> None:
 
     # Keep this quick status line visible
     st.caption(f"Target: `{target_col}` · Train: {len(y_train):,} · Test: {len(y_test):,}")
+    rows = len(df_idx)
+    freq_human = to_human_freq(st.session_state.get('freq'))
+    st.success(
+        f"✅ Data ready — {rows:,} rows • {freq_human} • Target: {target_col} • H = {H} "
+        f"(train {len(y_train):,} / test {len(y_test):,})"
+    )
 
-    st.success("Data is ready. You can open EDA or Models.")
 
 # --- EDA page ---
 def render_eda_page() -> None:

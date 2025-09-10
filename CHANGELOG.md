@@ -84,6 +84,11 @@ Default shows first 5 rows, with dropdown toggle for 10/20.
 Added “Show last 5” button inside expander for quick split sanity-check.
 Reduces scrolling noise while keeping preview accessible when needed.
 
+Phase 16.6 — Unified Dataset Summary
+
+Merged Dataset summary and Sampling frequency & gaps into a single expander.
+Clean 2-column layout now shows: Rows, Cols, Start, End, Sampling freq, Missing timestamps, Expected timestamps, % missing timestamps.
+Removed redundant "Top missing" info to keep the panel focused.
 
 
 
