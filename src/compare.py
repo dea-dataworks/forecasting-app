@@ -10,36 +10,51 @@ except Exception:  # pragma: no cover
 from typing import Any, Dict, Tuple
 import pandas as pd
 
-def validate_horizon(y_test: pd.Series, horizon: int) -> int:
+def validate_horizon(horizon: int, test_len_like) -> int:
     """
-    Validate the requested forecast horizon against the test set length.
-    
+    Validate the forecast horizon against the test-set length.
+
     Parameters
     ----------
-    y_test : pd.Series
-        True test values with a DatetimeIndex.
     horizon : int
-        Desired forecast horizon (number of steps ahead).
-    
+        Desired forecast horizon (number of steps ahead). Must be > 0.
+    test_len_like : Any
+        Either an integer test length, or any object with a defined len()
+        (e.g., a list, Series, or array representing the test set).
+
     Returns
     -------
     int
-        A safe horizon value clipped to the test set length.
-    
+        A safe horizon value clipped to the available test length.
+
     Raises
     ------
     ValueError
-        If horizon is <= 0.
+        If horizon <= 0 or resolved test length <= 0.
+    TypeError
+        If test_len_like is neither an int nor a length-like object.
     """
-    if horizon <= 0:
+    # coerce/validate horizon
+    try:
+        h = int(horizon)
+    except Exception as e:
+        raise TypeError("horizon must be an integer.") from e
+    if h <= 0:
         raise ValueError("Forecast horizon must be positive.")
-    
-    max_horizon = len(y_test)
-    if horizon > max_horizon:
-        # Clip horizon to max available test length
-        horizon = max_horizon
-    
-    return horizon
+
+    # resolve test length from int or length-like
+    if isinstance(test_len_like, int):
+        t = test_len_like
+    else:
+        try:
+            t = len(test_len_like)
+        except Exception as e:
+            raise TypeError("test_len_like must be an int or have a length.") from e
+
+    if t <= 0:
+        raise ValueError("Test length must be positive.")
+
+    return min(h, t)
 
 def make_future_index(last_ts: pd.Timestamp, periods: int, freq: str) -> pd.DatetimeIndex:
     """
