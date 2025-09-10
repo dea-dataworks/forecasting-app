@@ -337,49 +337,127 @@ def plot_overlay(
     y_train: pd.Series,
     y_test: pd.Series,
     forecasts: Dict[str, pd.Series],
-    tail: int = 200
-):
+    *,
+    lower: Dict[str, pd.Series] | None = None,
+    upper: Dict[str, pd.Series] | None = None,
+    ci_model: str | None = None,
+    tail: int = 200,
+    density: str = "expanded",
+    title: str | None = None,
+    ax: plt.Axes | None = None,
+) -> plt.Figure:
     """
-    One figure with: last `tail` points of train, full test, and all model forecasts overlaid.
+    Unified overlay: train tail + test + forecasts, with optional CI band for one model.
 
     Parameters
     ----------
     y_train : pd.Series
         Training series (DatetimeIndex).
     y_test : pd.Series
-        Test/holdout series (DatetimeIndex).
+        Test/holdout series (DatetimeIndex). This defines the alignment index.
     forecasts : dict[str, pd.Series]
-        Model name -> forecast Series (DatetimeIndex aligned to future).
+        Model -> forecast Series. Each will be reindexed to y_test.index.
+    lower, upper : dict[str, pd.Series] or None
+        Optional per-model lower/upper bands (same index as y_test after alignment).
+    ci_model : str or None
+        If provided and matching a key in forecasts (+ lower/upper), draws a shaded band.
     tail : int, default 200
-        How many trailing points of train to show for context.
+        Show only the last `tail` points of y_train for context (downsampling guard).
+    density : {"compact","expanded"}, default "expanded"
+        Adjusts figure size, font sizes, and legend density.
+    title : str or None
+        Optional plot title; defaults to a concise standard title.
+    ax : matplotlib.axes.Axes or None
+        Optional external axes. If None, a new Figure/Axes is created.
 
     Returns
     -------
     matplotlib.figure.Figure
-        The created figure (caller can render in Streamlit or save to file).
+        Figure containing the overlay.
     """
-    if tail is not None and tail > 0:
-        y_tr = y_train.iloc[-tail:]
+    # ----- Density presets (keep it deterministic)
+    if density not in ("compact", "expanded"):
+        density = "expanded"
+    if density == "compact":
+        figsize = (9, 4)
+        fs_label = 9
+        legend_fs = 8
+        legend_cols = 2
+        yticks_max = 5
     else:
-        y_tr = y_train
+        figsize = (11, 5)
+        fs_label = 10
+        legend_fs = 9
+        legend_cols = 2
+        yticks_max = 7
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    # ----- Train tail (simple downsampling guard)
+    y_tr = y_train.iloc[-tail:] if (tail is not None and tail > 0) else y_train
 
-    # Context: train tail + full test
-    ax.plot(y_tr.index, y_tr.values, label="Train (tail)", alpha=0.6, linewidth=1.2)
-    ax.plot(y_test.index, y_test.values, label="Test (actual)", linewidth=1.6)
+    # ----- Create axes if needed
+    fig: plt.Figure
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
 
-    # Overlaid forecasts
-    for name, fcst in forecasts.items():
+    # ----- Plot context layers first
+    ax.plot(y_tr.index, y_tr.values, label="Train (tail)", alpha=0.6, linewidth=1.1)
+    ax.plot(y_test.index, y_test.values, label="Test (actual)", linewidth=1.6, zorder=5)
+
+    # ----- Align forecasts (and intervals) to test index
+    aligned_fcsts: Dict[str, pd.Series] = {}
+    for name, fcst in sorted(forecasts.items(), key=lambda kv: kv[0].lower()):
         if fcst is None or len(fcst) == 0:
             continue
-        ax.plot(fcst.index, fcst.values, label=name, linewidth=1.4)
+        # Reindex strictly to test window; do not fill — missing points will drop from plotting.
+        fc = pd.Series(fcst, copy=False)
+        fc = fc.reindex(y_test.index)
+        if fc.notna().sum() == 0:
+            # Skip all-NaN after alignment
+            continue
+        aligned_fcsts[name] = fc
+        ax.plot(fc.index, fc.values, label=name, linewidth=1.4, zorder=4)
 
-    ax.set_title("Forecast Comparison")
-    ax.set_xlabel("Date")
-    ax.set_ylabel(y_train.name or "value")
+    # ----- Optional single-model CI band
+    if ci_model and aligned_fcsts and lower is not None and upper is not None:
+        if ci_model in aligned_fcsts and ci_model in lower and ci_model in upper:
+            lo = pd.Series(lower[ci_model], copy=False).reindex(y_test.index)
+            hi = pd.Series(upper[ci_model], copy=False).reindex(y_test.index)
+            # Only draw if both have some valid values and same length as y_test
+            mask = lo.notna() & hi.notna()
+            if mask.any():
+                ax.fill_between(
+                    y_test.index[mask],
+                    lo[mask].to_numpy(dtype="float64"),
+                    hi[mask].to_numpy(dtype="float64"),
+                    alpha=0.18,
+                    label=f"{ci_model} CI",
+                    zorder=3,
+                )
+
+    # ----- Axes cosmetics
+    ax.set_title(title or "Overlay: Train tail, Test, Forecasts", fontsize=fs_label + 1)
+    ax.set_xlabel("Date", fontsize=fs_label)
+    ax.set_ylabel(y_train.name or "value", fontsize=fs_label)
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="best", fontsize=9, ncol=2)
+
+    # Tidy y-ticks count (best effort; Matplotlib may adjust)
+    try:
+        ax.yaxis.set_major_locator(plt.MaxNLocator(yticks_max))
+    except Exception:
+        pass
+
+    # Legend hygiene: Test first, then models, then CI if present
+    leg = ax.legend(loc="best", fontsize=legend_fs, ncol=legend_cols)
+    if leg is not None:
+        # optional: truncate very long labels for compact mode
+        if density == "compact":
+            for t in leg.get_texts():
+                s = t.get_text()
+                if len(s) > 28:
+                    t.set_text(s[:25] + "…")
+
     fig.tight_layout()
     return fig
 

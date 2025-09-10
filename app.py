@@ -353,10 +353,48 @@ def render_models_page() -> None:
     # --- Overlay plot (train tail, test, and baseline forecasts) ---
     try:
         # Build forecasts dict from results: {'name': y_pred_series, ...}
-        forecasts = {name: res["y_pred"] for name, res in results.items() if isinstance(res, dict) and "y_pred" in res}
-        fig = plot_overlay(y_train=y_train, y_test=y_test, forecasts=forecasts, tail=200)
+        # Build forecasts dict from results: {'name': y_pred_series, ...}
+        forecasts = {
+            name: res["y_pred"]
+            for name, res in results.items()
+            if isinstance(res, dict) and "y_pred" in res
+        }
+
+        # Optional CI dicts if present in results (baseline models may not have these)
+        lower = {
+            name: res["lower"]
+            for name, res in results.items()
+            if isinstance(res, dict) and "lower" in res
+        }
+        upper = {
+            name: res["upper"]
+            for name, res in results.items()
+            if isinstance(res, dict) and "upper" in res
+        }
+
+        # CI selection: only offer models that have both lower & upper
+        ci_candidates = sorted(set(lower.keys()) & set(upper.keys()) & set(forecasts.keys()))
+        ci_options = ["(none)"] + ci_candidates
+        ci_default = 0
+        ci_model = st.selectbox("Show CI band from", options=ci_options, index=ci_default)
+        ci_model = None if ci_model == "(none)" else ci_model
+
+        # Density from session (set on the sidebar toggle)
+        density = st.session_state.get("density", "expanded")
+
+        fig = plot_overlay(
+            y_train=y_train,
+            y_test=y_test,
+            forecasts=forecasts,
+            lower=lower if lower else None,
+            upper=upper if upper else None,
+            ci_model=ci_model,
+            density=density,
+            tail=200,
+        )
         st.subheader("Overlay")
         st.pyplot(fig)
+
     except Exception as e:
         st.warning(f"Could not render overlay: {e}")
         fig = None
@@ -485,8 +523,30 @@ def render_compare_page() -> None:
         metrics_df = None
 
     # ---- Overlay plot
+    # ---- Overlay plot
     try:
-        fig = plot_overlay(y_train=y_train, y_test=y_test.iloc[:H], forecasts=forecasts, tail=200)
+        # Offer CI only for models that have lower+upper aligned to y_test[:H]
+        lower = lower if isinstance(lower, dict) else {}
+        upper = upper if isinstance(upper, dict) else {}
+
+        ci_candidates = sorted(set(lower.keys()) & set(upper.keys()) & set(forecasts.keys()))
+        ci_options = ["(none)"] + ci_candidates
+        ci_default = 0
+        ci_model = st.selectbox("Show CI band from", options=ci_options, index=ci_default, key="compare_ci_model")
+        ci_model = None if ci_model == "(none)" else ci_model
+
+        density = st.session_state.get("density", "expanded")
+
+        fig = plot_overlay(
+            y_train=y_train,
+            y_test=y_test.iloc[:H],
+            forecasts=forecasts,
+            lower=lower if lower else None,
+            upper=upper if upper else None,
+            ci_model=ci_model,
+            density=density,
+            tail=200,
+        )
         st.subheader("Overlay")
         st.pyplot(fig)
     except Exception as e:

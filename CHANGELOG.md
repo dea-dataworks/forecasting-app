@@ -6,6 +6,20 @@ Phase 12: Exports
 - Confirmed figure_to_png_bytes() integration with overlay plots.git l
 - Standardized make_default_filenames() for timestamped CSV/PNG outputs.
 
+Phase 13: Metrics & Compare polish
+
+src/compare.py
+        Upgraded compute_metrics_table():
+        Added NaN/zero-denominator safety across metrics.
+        Optional metrics: sMAPE and MASE (with naive one-step denominator).
+        Configurable sort (sort_by, default RMSE, NaNs sink last).
+app.py
+        Compare page:
+                Display H = … steps above leaderboard.
+                Added checkboxes for sMAPE/MASE and a Sort by selector.
+                Metrics recompute automatically when H or toggles change.
+                Output: Stable, sortable leaderboard (MAE/RMSE/MAPE; optional sMAPE/MASE) clearly tied to the current horizon.
+
 
 
 
