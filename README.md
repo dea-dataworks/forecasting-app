@@ -2,7 +2,7 @@
 
 Upload a CSV, detect the datetime index, explore the series, run baselines and classical models (optional ARIMA/Prophet), compare results, and download forecasts/plots — all in one lightweight app.
 
-> **Status:** v0.2 “Release Prep & QA” – Phases 1–10 implemented.  
+> **Status:** v0.1 — core flow complete (Data → EDA → Models → Compare).    
 > **Python:** 3.12 recommended.  
 > **Streamlit:** 1.39+ (uses the new `width="stretch"` param).
 

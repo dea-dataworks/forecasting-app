@@ -162,6 +162,7 @@ Phase 10: Classical Models (ARIMA & Prophet)
 Phase 11: Release Prep & QA 
 
 - Fixed deprecated Streamlit params in app.py (use_container_width → width="stretch").
+- Added a tests/ with 3–4 tiny pytest checks. Used a tiny synthetic series.
 - Cleaned redundant imports in compare.py.
 - Added root requirements.txt with core deps; marked pmdarima/prophet as optional.
 - Completed README.md with setup instructions, features, and troubleshooting.

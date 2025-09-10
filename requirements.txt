@@ -4,6 +4,6 @@ pandas>=2.2
 numpy>=1.26
 matplotlib>=3.8
 
-# ---- Optional classical models (commented out by default) ----
-pmdarima>=2.0
-prophet>=1.1
+# # ---- Optional classical models (commented out by default) ----
+# pmdarima>=2.0
+# prophet>=1.1
