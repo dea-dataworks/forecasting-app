@@ -117,6 +117,7 @@ Phase 18
         - `app.py`: Train tail slider on Models page to control overlay plot window.
         - Models page: CSV export now includes yhat, lower, upper, plus model + level; filenames show horizon + CI.
         - Compare page: Added combined CSV export across all models with consistent index and CI annotation.
+        - Models: added Prophet seasonality checkboxes (weekly/yearly/daily) and ARIMA seasonal period (m) override (Auto/7/12/24/52). Uses shared CI slider. 
 
 
 

@@ -535,6 +535,7 @@ def render_models_page() -> None:
 
 
     # ARIMA (safe defaults)
+    # ARIMA (safe defaults)
     if use_arima:
         try:
             freq = st.session_state.get("freq")
@@ -545,12 +546,15 @@ def render_models_page() -> None:
             else:
                 m = int(m_choice)
 
-            # Seasonal iff m is a meaningful seasonal length (>1)
             seasonal = (m is not None) and (m > 1)
 
-            arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
+            import time
+            t0 = time.perf_counter()
+            with st.spinner("Training ARIMA…"):
+                arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
+            dt = time.perf_counter() - t0
+            st.caption(f"ARIMA trained in {dt:.2f}s")
 
-            # NEW — stash fitted model
             st.session_state.setdefault("models", {})
             st.session_state["models"]["arima"] = arima_model
 
@@ -566,6 +570,7 @@ def render_models_page() -> None:
 
 
     # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
+    # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
     if use_prophet:
         try:
             ci_level = st.session_state.get("ci_level", 0.95)
@@ -573,15 +578,19 @@ def render_models_page() -> None:
             y = st.session_state.get("prophet_yearly", True)
             d = st.session_state.get("prophet_daily", False)
 
-            prophet_model = train_prophet(
-                y_train,
-                weekly=w,
-                yearly=y,
-                daily=d,
-                interval_width=ci_level,
-            )
+            import time
+            t0 = time.perf_counter()
+            with st.spinner("Training Prophet…"):
+                prophet_model = train_prophet(
+                    y_train,
+                    weekly=w,
+                    yearly=y,
+                    daily=d,
+                    interval_width=ci_level,
+                )
+            dt = time.perf_counter() - t0
+            st.caption(f"Prophet trained in {dt:.2f}s")
 
-            # NEW — stash fitted model
             st.session_state.setdefault("models", {})
             st.session_state["models"]["prophet"] = prophet_model
 
