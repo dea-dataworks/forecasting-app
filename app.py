@@ -30,6 +30,10 @@ def init_state_keys() -> None:
         st.session_state.setdefault(k, None)
     st.session_state.setdefault("density", "expanded")
 
+    # NEW: stash for fitted models + default train-tail for overlay plots
+    st.session_state.setdefault("models", {})        # {"arima": ..., "prophet": ...}
+    st.session_state.setdefault("train_tail", 200)   # visual window for overlay plots
+
 # --- 3) Sidebar navigation ----------------------------------------------------
 def sidebar_nav() -> str:
     st.sidebar.title("Navigation")
@@ -519,14 +523,19 @@ def render_models_page() -> None:
 
 
     # ARIMA (safe defaults)
+    # ARIMA (safe defaults)
     if use_arima:
         try:
             freq = st.session_state.get("freq")
-            # NEW: infer season length from detected freq (Auto)
             m = infer_season_length_from_freq(freq)
             seasonal = m is not None
             arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
-            # NEW: wire CI — alpha = 1 - level
+
+            # NEW — stash fitted model
+            st.session_state.setdefault("models", {})
+            st.session_state["models"]["arima"] = arima_model
+
+            # CI: alpha = 1 - level
             yhat, lo, hi = forecast_auto_arima(
                 arima_model,
                 test_index=y_test.index,
@@ -539,14 +548,17 @@ def render_models_page() -> None:
     # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
     if use_prophet:
         try:
-            # If CI slider (Step 1) hasn’t been added yet, fall back to 0.95
             ci_level = st.session_state.get("ci_level", 0.95)
             prophet_model = train_prophet(y_train, interval_width=ci_level)
+
+            # NEW — stash fitted model
+            st.session_state.setdefault("models", {})
+            st.session_state["models"]["prophet"] = prophet_model
+
             yhat, lo, hi = forecast_prophet(prophet_model, test_index=y_test.index)
             results["Prophet"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"Prophet failed: {type(e).__name__}: {e}")
-
 
     st.session_state["baseline_results"] = results  
 
@@ -591,6 +603,11 @@ def render_models_page() -> None:
         # Density from session (set on the sidebar toggle)
         density = st.session_state.get("density", "expanded")
 
+        # NEW: Train tail slider (visual window only)
+        max_tail = max(50, len(y_train))
+        tail = st.slider("Train tail (points)", min_value=50, max_value=max_tail, value=int(st.session_state.get("train_tail", 200)))
+        st.session_state["train_tail"] = tail
+
         fig = plot_overlay(
             y_train=y_train,
             y_test=y_test,
@@ -599,8 +616,9 @@ def render_models_page() -> None:
             upper=upper if upper else None,
             ci_model=ci_model,
             density=density,
-            tail=200,
+            tail=tail,   # ← use the slider value
         )
+
         st.subheader("Overlay")
         st.pyplot(fig)
 
