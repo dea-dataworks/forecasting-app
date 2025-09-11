@@ -107,7 +107,7 @@ Wrapped decomposition into an expandable section with short explanatory text.
 Wrapped ACF/PACF into a separate expander with cue text.
 Updated page caption to reflect simplified flow.
 
-Phase 18
+Phase 18 Models Page
 
 - Added
         - `eda.py`: new helper `infer_season_length_from_freq(freq)` to guess seasonal period `m` from dataset frequency.
@@ -121,6 +121,13 @@ Phase 18
         - Added spinners with elapsed time display for ARIMA and Prophet training on Models page.
         - Fixed CSV export errors by updating `build_forecast_table` to accept `lower`/`upper` args alongside legacy `lower_ci`/`upper_ci`.
         - Reworked CSV download UI on Models page: model selector on top, aligned side-by-side buttons below.
+
+Phase 19 Compare Page
+
+Unnested “Download a model’s forecast” expander (no more nested UI).
+CI dropdown now only shows when a model provides bands.
+Per-model CSV export normalizes index to timezone-naive for clean files.
+No metric changes; filenames unchanged.
 
 
 

@@ -1047,6 +1047,7 @@ def render_compare_page() -> None:
     # ---- Overlay plot
     try:
         # show the CI selector only when any model provides lower/upper.
+        # For v0.2, show the CI selector only when any model provides lower/upper.
         lower: dict[str, pd.Series] = {}
         upper: dict[str, pd.Series] = {}
 
@@ -1109,51 +1110,67 @@ def render_compare_page() -> None:
         except Exception as e:
             st.warning(f"Combined CSV export unavailable: {e}")
 
-    # SIBLING expander (not nested)
+    # Sibling expander (not nested) — stacked buttons below the selector
     with st.expander("Download a model’s forecast as CSV", expanded=True):
-        left, right = st.columns(2)
+        # Row 1 — selector (same pattern as Models page)
         model_names = list(forecasts.keys())
-        chosen = left.selectbox("Model", options=model_names, index=0)
-        try:
-            y_pred = forecasts[chosen]
-            # Ensure timezone-naive index for CSVs
-            idx = y_pred.index
+        chosen = st.selectbox("Model", options=model_names, index=0)
+
+        # Helper — identical behavior to Models: make the index tz-naive
+        def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
             try:
-                idx = idx.tz_convert(None)
+                return idx.tz_convert(None)
             except Exception:
                 try:
-                    idx = idx.tz_localize(None)
+                    return idx.tz_localize(None)
                 except Exception:
-                    pass
+                    return idx
+
+        # Row 2 — two buttons in columns, directly below selector (UI parity)
+        col_csv, col_png = st.columns(2)
+
+        # Left: CSV (selected model), aligned to y_test[:H] and annotated like Models
+        try:
+            y_pred = forecasts[chosen].iloc[:H]
+            idx = _naive_index(y_test.iloc[:H].index)
+
+            level = float(st.session_state.get("ci_level", 0.95))
+            ci_pct = int(round(level * 100))
 
             fc_df = build_forecast_table(index=idx, y_pred=y_pred)
+            # Mirror Models page: include model + level columns
+            fc_df["model"] = chosen
+            fc_df["level"] = ci_pct
+
             csv_bytes = dataframe_to_csv_bytes(fc_df)
-            fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
-            left.download_button(
-                "Download CSV",
+            fn = make_default_filenames(base=f"{chosen}_compare_h{H}_ci{ci_pct}")
+            col_csv.download_button(
+                "Download CSV (selected model)",
                 data=csv_bytes,
                 file_name=fn["csv"],
                 mime="text/csv",
-                width="stretch",
+                use_container_width=True,
             )
         except Exception as e:
-            left.warning(f"CSV export unavailable: {e}")
+            col_csv.warning(f"CSV export unavailable: {e}")
 
+        # Right: PNG (overlay), kept alongside for the same two-button layout feel
         try:
             if fig is not None:
                 png = figure_to_png_bytes(fig)
                 fn = make_default_filenames(base=f"compare_overlay_H{H}")
-                right.download_button(
-                    "Download PNG",
+                col_png.download_button(
+                    "Download PNG (overlay)",
                     data=png,
                     file_name=fn["png"],
                     mime="image/png",
-                    width="stretch",
+                    use_container_width=True,
                 )
             else:
-                right.info("Run comparison to enable plot export.")
+                col_png.info("Run comparison to enable plot export.")
         except Exception as e:
-            right.warning(f"PNG export unavailable: {e}")
+            col_png.warning(f"PNG export unavailable: {e}")
+
 
     st.success("Comparison ready. Add ARIMA/Prophet later to broaden the race.")
 
