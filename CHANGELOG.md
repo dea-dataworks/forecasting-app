@@ -128,6 +128,9 @@ Unnested “Download a model’s forecast” expander (no more nested UI).
 CI dropdown now only shows when a model provides bands.
 Per-model CSV export normalizes index to timezone-naive for clean files.
 No metric changes; filenames unchanged.
+Matched Models page layout: selector + two buttons below (CSV, PNG).
+CSV now aligns to y_test[:H] with tz-naive index; includes model and level columns.
+Filenames standardized: {model}_compare_h{H}_ci{level}.csv.
 
 
 

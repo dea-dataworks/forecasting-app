@@ -1007,42 +1007,50 @@ def render_compare_page() -> None:
     if not run_btn and "compare_cache" not in st.session_state:
         st.stop()
 
-    # ---- Generate aligned forecasts
-    try:
-        forecasts = generate_forecasts(models=models, horizon=H, last_ts=y_train.index[-1], freq=freq)
-        st.session_state["compare_cache"] = {"forecasts": forecasts, "H": H, "future_idx": future_idx}
-    except Exception as e:
-        st.warning(f"Forecast generation failed: {e}")
-        return
-
-    forecasts = st.session_state["compare_cache"]["forecasts"]
-
-    # ---- Metric options (toggles + sort)
+    # ---- Generate aligned forecasts + compute metrics (spinner + timing)
+    # Metric options (toggles + sort) stay above so they drive computation inside the spinner
     copt1, copt2, copt3 = st.columns([1, 1, 2])
     use_smape = copt1.checkbox("sMAPE", value=False, help="Symmetric MAPE (%)")
     use_mase  = copt2.checkbox("MASE", value=False, help="Scaled by naive MAE")
     sort_choices = ["RMSE", "MAE", "MAPE%"] + (["sMAPE%"] if use_smape else []) + (["MASE"] if use_mase else [])
     sort_by = copt3.selectbox("Sort by", options=sort_choices, index=0, help="Leaderboard order")
 
-    # ---- Metrics table
     try:
-        # y_true = the first H points of y_test
-        y_true = y_test.iloc[:H]
-        metrics_df = compute_metrics_table(
-            y_true=y_true,
-            forecasts=forecasts,
-            include_smape=use_smape,
-            include_mase=use_mase,
-            y_train_for_mase=y_train if use_mase else None,
-            sort_by=sort_by,
-            ascending=True,
-        )
-        st.subheader("Leaderboard")
-        st.caption(f"H = {H} steps")
-        st.dataframe(metrics_df, width="stretch")
+        import time
+        t0 = time.perf_counter()
+        with st.spinner("Comparing…"):
+            forecasts = generate_forecasts(models=models, horizon=H, last_ts=y_train.index[-1], freq=freq)
+            y_true = y_test.iloc[:H]
+            metrics_df = compute_metrics_table(
+                y_true=y_true,
+                forecasts=forecasts,
+                include_smape=use_smape,
+                include_mase=use_mase,
+                y_train_for_mase=y_train if use_mase else None,
+                sort_by=sort_by,
+                ascending=True,
+            )
+        dt = time.perf_counter() - t0
+
+        # cache everything we need for subsequent sections
+        st.session_state["compare_cache"] = {
+            "forecasts": forecasts,
+            "H": H,
+            "future_idx": future_idx,
+            "metrics_df": metrics_df,
+            "dt": dt,
+        }
     except Exception as e:
-        st.warning(f"Could not compute metrics: {e}")
-        metrics_df = None
+        st.warning(f"Comparison failed: {e}")
+        return
+
+    forecasts = st.session_state["compare_cache"]["forecasts"]
+    metrics_df = st.session_state["compare_cache"]["metrics_df"]
+
+    st.subheader("Leaderboard")
+    st.caption(f"H = {H} steps")
+    st.dataframe(metrics_df, width="stretch")
+    st.caption(f"done in {st.session_state['compare_cache']['dt']:.2f}s")
 
     # ---- Overlay plot
     try:
@@ -1063,6 +1071,10 @@ def render_compare_page() -> None:
             ci_model = None
         density = st.session_state.get("density", "expanded")
 
+        # Use the same visual window as the Models page; clamp to [1, len(y_train)]
+        tail = int(st.session_state.get("train_tail", 200))
+        tail = max(1, min(tail, len(y_train)))
+
         fig = plot_overlay(
             y_train=y_train,
             y_test=y_test.iloc[:H],
@@ -1071,8 +1083,9 @@ def render_compare_page() -> None:
             upper=upper if upper else None,
             ci_model=ci_model,
             density=density,
-            tail=200,
+            tail=tail,
         )
+        
         st.subheader("Overlay")
         st.pyplot(fig)
     except Exception as e:
