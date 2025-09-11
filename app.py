@@ -710,6 +710,109 @@ def render_models_page() -> None:
                         st.pyplot(fig_pacf)
                 except Exception as e:
                     st.warning(f"Residual ACF/PACF unavailable: {e}")
+    # --- Model cards (new) ---
+    st.subheader("Model cards")
+    models_dict = st.session_state.get("models", {}) or {}
+    level = float(st.session_state.get("ci_level", 0.95))
+
+    c1, c2 = st.columns(2)
+
+    # ARIMA card
+    with c1:
+        if "arima" in models_dict:
+            am = models_dict["arima"]
+
+            order = (
+                getattr(am, "order", None)
+                or getattr(getattr(am, "model_", None), "order", None)
+                or getattr(getattr(am, "model", None), "order", None)
+            )
+            sorder = (
+                getattr(am, "seasonal_order", None)
+                or getattr(getattr(am, "model_", None), "seasonal_order", None)
+                or getattr(getattr(am, "model", None), "seasonal_order", None)
+            )
+
+            aic = None
+            cand = getattr(am, "aic", None)
+            if callable(cand):
+                try:
+                    aic = float(cand())
+                except Exception:
+                    aic = None
+            elif cand is not None:
+                try:
+                    aic = float(cand)
+                except Exception:
+                    aic = None
+            if aic is None:
+                cand2 = getattr(getattr(am, "model_", None), "aic", None)
+                if cand2 is not None:
+                    try:
+                        aic = float(cand2)
+                    except Exception:
+                        aic = None
+
+            aic_txt = f"{aic:.2f}" if isinstance(aic, (int, float)) else "—"
+            st.markdown(
+                "**ARIMA**  \n"
+                f"(p,d,q): {order or '—'}  \n"
+                f"(P,D,Q,m): {sorder or '—'}  \n"
+                f"AIC: {aic_txt}  \n"
+                f"CI level: {int(level*100)}%"
+            )
+        else:
+            st.info("ARIMA not trained.")
+
+    # Prophet card
+    with c2:
+        if "prophet" in models_dict:
+            pm = models_dict["prophet"]
+
+            enabled = []
+            try:
+                seas = getattr(pm, "seasonalities", {}) or {}
+                for name in ("daily", "weekly", "yearly"):
+                    if name in seas:
+                        enabled.append(name)
+            except Exception:
+                for name in ("daily", "weekly", "yearly"):
+                    flag = getattr(pm, f"{name}_seasonality", None)
+                    if flag:
+                        enabled.append(name)
+
+            seas_txt = ", ".join(enabled) if enabled else "—"
+
+            cp_n = None
+            try:
+                cp = getattr(pm, "changepoints", None)
+                if cp is not None:
+                    try:
+                        cp_n = len(cp)
+                    except Exception:
+                        cp_n = None
+            except Exception:
+                pass
+
+            cp_mode = "auto"
+            try:
+                explicit = getattr(pm, "changepoints", None)
+                if explicit is not None and hasattr(explicit, "__iter__") and len(explicit) > 0:
+                    ncp = getattr(pm, "n_changepoints", None)
+                    if not ncp and cp_n:
+                        cp_mode = "manual"
+            except Exception:
+                pass
+            cp_txt = f"{cp_mode} (n={cp_n})" if cp_n is not None else f"{cp_mode} (n=—)"
+
+            st.markdown(
+                "**Prophet**  \n"
+                f"seasonalities: {seas_txt}  \n"
+                f"changepoints: {cp_txt}  \n"
+                f"CI level: {int(level*100)}%"
+            )
+        else:
+            st.info("Prophet not trained.")
 
     # --- Exports ---
     st.subheader("Exports")
