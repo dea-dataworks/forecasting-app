@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Optional
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
 from src.baselines import train_test_split_ts
-from src.eda import plot_raw_series, plot_rolling, basic_stats, plot_decomposition, plot_acf_series, plot_pacf_series
+from src.eda import (plot_raw_series, plot_rolling, basic_stats, plot_decomposition,
+                    plot_acf_series, plot_pacf_series, infer_season_length_from_freq)
 from src.baselines import run_baseline_suite, format_baseline_report
 from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
@@ -489,6 +490,12 @@ def render_models_page() -> None:
                             help="Auto-ARIMA via pmdarima" + ("" if HAS_PMDARIMA else " — not installed"))
     use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
+    
+    # Confidence level (shared UI; for now used by ARIMA only)
+    ci_level = st.slider("Confidence level", min_value=0.50, max_value=0.99, value=0.95, step=0.01,
+                         help="For interval bands. 0.95 → alpha = 0.05")
+    st.session_state["ci_level"] = ci_level
+    alpha = 1.0 - ci_level
 
     # Early gate remains after toggles so they are visible on first visit
     if not run_button and "baseline_results" not in st.session_state:
@@ -515,11 +522,16 @@ def render_models_page() -> None:
     if use_arima:
         try:
             freq = st.session_state.get("freq")
-            # naive season length guess (optional, safe to skip)
-            m = 7 if freq in ("D", "B") else (12 if freq in ("MS", "M") else None)
+            # NEW: infer season length from detected freq (Auto)
+            m = infer_season_length_from_freq(freq)
             seasonal = m is not None
             arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
-            yhat, lo, hi = forecast_auto_arima(arima_model, test_index=y_test.index)
+            # NEW: wire CI — alpha = 1 - level
+            yhat, lo, hi = forecast_auto_arima(
+                arima_model,
+                test_index=y_test.index,
+                alpha=alpha
+            )
             results["ARIMA"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"ARIMA failed: {type(e).__name__}: {e}")

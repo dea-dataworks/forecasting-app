@@ -140,6 +140,27 @@ def basic_stats(df):
         "mean": float(s_nonnull.mean()),
     }
 
+# --- season length heuristic from pandas frequency alias ---
+def infer_season_length_from_freq(freq: str | None) -> int | None:
+    """
+    Map a pandas frequency alias to a sensible seasonal period (m).
+    Examples: D/B→7, W→52, M/MS→12, Q/QS→4, H→24. Returns None if unknown.
+    """
+    if not freq:
+        return None
+    f = str(freq).upper()
+    if f in {"D", "B"}:
+        return 7
+    if f == "W":
+        return 52
+    if f in {"M", "MS"}:
+        return 12
+    if f in {"Q", "QS"}:
+        return 4
+    if f == "H":
+        return 24
+    return None
+
 def plot_decomposition(df, period: int | None = None, model: str = "additive"):
     """
     Plot seasonal-trend decomposition (Trend, Seasonal, Residual) as 3 stacked subplots.

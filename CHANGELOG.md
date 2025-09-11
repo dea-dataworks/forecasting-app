@@ -100,6 +100,27 @@ Added plot_acf_series() and plot_pacf_series() in eda.py.
 Integrated ACF/PACF plots into EDA tab after decomposition.
 Auto‐clipped nlags (≤30 or 10% of series length) with short‐series guardrails.
 
+Phase 17.3 – Layout polish
+
+Merged raw series + rolling view into one main plot with optional overlay.
+Wrapped decomposition into an expandable section with short explanatory text.
+Wrapped ACF/PACF into a separate expander with cue text.
+Updated page caption to reflect simplified flow.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Phase 1 — Data Input & Validation
 
