@@ -119,13 +119,31 @@ def to_human_freq(alias: str | None) -> str:
 
 # --- 5) Sample data loader (button) ------------------------------------------
 def load_sample_button() -> None:
-    # st.subheader("Data")
-    # st.caption("Use this to render something immediately before wiring CSV upload.")
-    if st.button("Load sample data", type="primary"):
-        dates = pd.date_range("2022-01-01", periods=60, freq="D")
-        vals = pd.Series(100 + pd.Series(range(60)).rolling(3, min_periods=1).mean().values, index=dates)
-        st.session_state.df = pd.DataFrame({"value": vals})
-        st.success("Sample data loaded.")
+    """
+    Demo loader: looks for CSVs in ./examples next to app.py.
+    """
+    samples_dir = Path(__file__).with_name("examples")
+    csvs = sorted(samples_dir.glob("*.csv"))
+
+    with st.expander("Try a sample (demo)", expanded=True):
+        if not csvs:
+            st.info("Put a CSV in ./examples (e.g., delhi_sample.csv) to enable the demo.")
+            return
+
+        if len(csvs) == 1:
+            sample_path = csvs[0]
+            st.write(f"Sample detected: **{sample_path.name}**")
+        else:
+            name = st.selectbox("Choose sample", [p.name for p in csvs], index=0)
+            sample_path = samples_dir / name
+
+        if st.button("Load sample", type="primary"):
+            try:
+                df = pd.read_csv(sample_path)
+                st.session_state.df = df
+                st.success(f"Loaded sample: **{sample_path.name}** • {len(df):,} rows.")
+            except Exception as e:
+                st.error(f"Could not load sample: {e}")
 
 # --- 6) Page renderers --------------------------------------------------------
 # --- DATA Page ---
@@ -147,9 +165,12 @@ def render_data_page() -> None:
         df_raw = st.session_state.get("df")
 
     if df_raw is None:
-        st.info("Upload a CSV to continue, or use the sample button above.")
+        st.info("Upload a CSV to continue, or open the sample (demo) below.")
         load_sample_button()
-        return
+        # If a sample was just loaded, pick it up and continue.
+        df_raw = st.session_state.get("df")
+        if df_raw is None:
+            st.stop()
 
     # --- B) Detect datetime index (first mutation) ---
     if isinstance(df_raw.index, pd.DatetimeIndex):
@@ -325,8 +346,7 @@ def render_data_page() -> None:
         "Select split type",
         options=["percentage", "count"],
         horizontal=True,
-        help="• Percentage : Reserve the last X% of rows for testing.\n"
-            "• Count: Reserve the last N rows for testing."
+        help="Reserve either the last % or N rows for testing"
     )
 
     n_rows = len(df_idx)
