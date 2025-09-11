@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -7,8 +7,6 @@ try:
     from prophet import Prophet  # optional
 except Exception:  # pragma: no cover
     Prophet = None  # type: ignore
-from typing import Any, Dict, Tuple
-import pandas as pd
 
 def validate_horizon(horizon: int, test_len_like) -> int:
     """

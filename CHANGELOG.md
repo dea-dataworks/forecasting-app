@@ -131,6 +131,11 @@ No metric changes; filenames unchanged.
 Matched Models page layout: selector + two buttons below (CSV, PNG).
 CSV now aligns to y_test[:H] with tz-naive index; includes model and level columns.
 Filenames standardized: {model}_compare_h{H}_ci{level}.csv.
+Added spinner + elapsed time around forecast generation/metrics (“Comparing…” with done in X.XXs).
+Overlay tail synced with Models page slider (train_tail, fallback 200).
+Auto-included trained ARIMA/Prophet from Models page (no duplicates).
+Leaderboard caption expanded with horizon + human frequency; metrics rounded to 4 decimals.
+Success note adapts if ARIMA/Prophet were auto-included.
 
 
 

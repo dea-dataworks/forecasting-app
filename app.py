@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -9,7 +10,7 @@ from src.baselines import train_test_split_ts
 from src.eda import (plot_raw_series, plot_rolling, basic_stats, plot_decomposition,
                     plot_acf_series, plot_pacf_series, infer_season_length_from_freq)
 from src.baselines import run_baseline_suite, format_baseline_report
-from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,build_combined_forecast_table)
+from src.compare import (validate_horizon, generate_forecasts, compute_metrics_table, plot_overlay, build_combined_forecast_table)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
 from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
 
@@ -952,6 +953,31 @@ def render_models_page() -> None:
 
     st.success("Baselines ready. You can move to **Compare** or enable ARIMA/Prophet later.")
 
+# --- helper ---
+def build_compare_signature(
+    H: int,
+    models: dict,
+    *,
+    ci_level: int | None,
+    freq: str | None,
+    last_ts: "pd.Timestamp",
+    train_tail: int | None,
+) -> tuple:
+    """
+    Deterministic signature for Compare results. If this changes,
+    the cached results are considered stale.
+    """
+    model_names = tuple(sorted(models.keys()))
+    sig = (
+        int(H),
+        model_names,
+        int(ci_level) if ci_level is not None else None,
+        str(freq) if freq is not None else None,
+        pd.Timestamp(last_ts).isoformat(),
+        int(train_tail) if train_tail is not None else None,
+    )
+    return sig
+
 # --- COMPARE page ---
 def render_compare_page() -> None:
     st.markdown("### Compare")
@@ -1001,15 +1027,6 @@ def render_compare_page() -> None:
         st.warning(f"Horizon invalid: {e}")
         return
 
-    try:
-        future_idx = make_future_index(last_ts=y_train.index[-1], periods=H, freq=freq)
-    except Exception as e:
-        st.warning(f"Could not build future index: {e}")
-        return
-
-    if not run_btn and "compare_cache" not in st.session_state:
-        st.stop()
-
     # ---- Generate aligned forecasts + compute metrics (spinner + timing)
     # Metric options (toggles + sort) stay above so they drive computation inside the spinner
     copt1, copt2, copt3 = st.columns([1, 1, 2])
@@ -1018,46 +1035,85 @@ def render_compare_page() -> None:
     sort_choices = ["RMSE", "MAE", "MAPE%"] + (["sMAPE%"] if use_smape else []) + (["MASE"] if use_mase else [])
     sort_by = copt3.selectbox("Sort by", options=sort_choices, index=0, help="Leaderboard order")
 
+    # --- Build a stable signature for current parameters (visual-only knobs excluded) ---
+    current_sig = build_compare_signature(
+        H=H,
+        models=models,
+        ci_level=None,                 # no CI on Compare yet
+        freq=freq,
+        last_ts=y_train.index[-1],
+        train_tail=None,               # visual; don’t force recompute on slider
+    )
+
+    cache = st.session_state.get("compare_cache")
+    prev_sig = st.session_state.get("compare_signature")
+
+    # First run requires a click; thereafter we only recompute on click
+    should_compute = bool(run_btn)
+    if cache is None and not should_compute:
+        st.info("Press **Compare models** to generate forecasts and metrics.")
+        st.stop()
+
+    # Recompute forecasts only on explicit click
+    if should_compute:
+        try:
+            t0 = time.perf_counter()
+            with st.spinner("Comparing…"):
+                forecasts = generate_forecasts(
+                    models=models,
+                    horizon=H,
+                    last_ts=y_train.index[-1],
+                    freq=freq,
+                )
+            dt = time.perf_counter() - t0
+
+            st.session_state["compare_cache"] = {
+                "forecasts": forecasts,
+                "H": H,
+                "dt": dt,
+            }
+            st.session_state["compare_signature"] = current_sig
+            cache = st.session_state["compare_cache"]
+            prev_sig = current_sig
+            st.caption(f"Done in {cache['dt']:.2f}s.")
+        except Exception as e:
+            st.warning(f"Comparison failed: {e}")
+            return
+    else:
+        # No recompute: show gentle hint if knobs affecting forecasts changed
+        if prev_sig is not None and prev_sig != current_sig:
+            st.caption("Parameters changed — press **Compare models** to refresh.")
+
+    # Always render from cache (forecasts + the H they were built for)
+    forecasts = cache["forecasts"]
+    H_eff = cache["H"]
+
+    # Recompute metrics cheaply from cached forecasts (respect current toggles), using cached H
     try:
-        import time
-        t0 = time.perf_counter()
-        with st.spinner("Comparing…"):
-            forecasts = generate_forecasts(models=models, horizon=H, last_ts=y_train.index[-1], freq=freq)
-            y_true = y_test.iloc[:H]
-            metrics_df = compute_metrics_table(
-                y_true=y_true,
-                forecasts=forecasts,
-                include_smape=use_smape,
-                include_mase=use_mase,
-                y_train_for_mase=y_train if use_mase else None,
-                sort_by=sort_by,
-                ascending=True,
-            )
-        dt = time.perf_counter() - t0
-
-        # cache everything we need for subsequent sections
-        st.session_state["compare_cache"] = {
-            "forecasts": forecasts,
-            "H": H,
-            "future_idx": future_idx,
-            "metrics_df": metrics_df,
-            "dt": dt,
-        }
+        y_true = y_test.iloc[:H_eff]
+        metrics_df = compute_metrics_table(
+            y_true=y_true,
+            forecasts=forecasts,
+            include_smape=use_smape,
+            include_mase=use_mase,
+            y_train_for_mase=y_train if use_mase else None,
+            sort_by=sort_by,
+            ascending=True,
+        )
     except Exception as e:
-        st.warning(f"Comparison failed: {e}")
-        return
-
-    forecasts = st.session_state["compare_cache"]["forecasts"]
-    metrics_df = st.session_state["compare_cache"]["metrics_df"]
+        st.warning(f"Metrics computation failed: {e}")
+        metrics_df = pd.DataFrame()
 
     st.subheader("Leaderboard")
-    st.caption(f"H = {H} • freq = {to_human_freq(freq)}")
+    st.caption(f"H = {H_eff} • freq = {to_human_freq(freq)}")
 
-    # Round for display only (don’t affect sorting)
     metrics_display = metrics_df.round(4)
-
     st.dataframe(metrics_display, width="stretch")
-    st.caption(f"done in {st.session_state['compare_cache']['dt']:.2f}s")
+
+    # Status line: show when we’re fully in-sync with cache
+    if st.session_state.get("compare_signature") == current_sig:
+        st.caption(f"Using cached results (H={H_eff}, freq={to_human_freq(freq)}).")
+
 
     # ---- Overlay plot
     try:
@@ -1084,7 +1140,7 @@ def render_compare_page() -> None:
 
         fig = plot_overlay(
             y_train=y_train,
-            y_test=y_test.iloc[:H],
+            y_test=y_test.iloc[:H_eff],
             forecasts=forecasts,
             lower=lower if lower else None,
             upper=upper if upper else None,
@@ -1104,7 +1160,7 @@ def render_compare_page() -> None:
 
     with st.expander("Download comparisons as CSV (combined)", expanded=True):
         # Use the first H points of y_test for a common, tz-naive index
-        idx = y_test.iloc[:H].index
+        idx = y_test.iloc[:H_eff].index
         try:
             # CI level (if/when you add per-model lower/upper later)
             level = float(st.session_state.get("ci_level", 0.95))
@@ -1119,7 +1175,7 @@ def render_compare_page() -> None:
             )
 
             csv_bytes = dataframe_to_csv_bytes(combined_df)
-            fn = make_default_filenames(base=f"compare_allmodels_h{H}_ci{ci_pct}")
+            fn = make_default_filenames(base=f"compare_allmodels_h{H_eff}_ci{ci_pct}")
             st.download_button(
                 "Download CSV (combined forecasts)",
                 data=csv_bytes,
@@ -1151,8 +1207,8 @@ def render_compare_page() -> None:
 
         # Left: CSV (selected model), aligned to y_test[:H] and annotated like Models
         try:
-            y_pred = forecasts[chosen].iloc[:H]
-            idx = _naive_index(y_test.iloc[:H].index)
+            y_pred = forecasts[chosen].iloc[:H_eff]
+            idx = _naive_index(y_test.iloc[:H_eff].index)
 
             level = float(st.session_state.get("ci_level", 0.95))
             ci_pct = int(round(level * 100))
@@ -1163,7 +1219,7 @@ def render_compare_page() -> None:
             fc_df["level"] = ci_pct
 
             csv_bytes = dataframe_to_csv_bytes(fc_df)
-            fn = make_default_filenames(base=f"{chosen}_compare_h{H}_ci{ci_pct}")
+            fn = make_default_filenames(base=f"{chosen}_compare_h{H_eff}_ci{ci_pct}")
             col_csv.download_button(
                 "Download CSV (selected model)",
                 data=csv_bytes,
@@ -1178,7 +1234,7 @@ def render_compare_page() -> None:
         try:
             if fig is not None:
                 png = figure_to_png_bytes(fig)
-                fn = make_default_filenames(base=f"compare_overlay_H{H}")
+                fn = make_default_filenames(base=f"compare_overlay_H{H_eff}")
                 col_png.download_button(
                     "Download PNG (overlay)",
                     data=png,
