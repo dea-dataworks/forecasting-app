@@ -536,14 +536,17 @@ def render_models_page() -> None:
         except Exception as e:
             st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
 
-    # Prophet
+    # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
     if use_prophet:
         try:
-            prophet_model = train_prophet(y_train)
+            # If CI slider (Step 1) hasn’t been added yet, fall back to 0.95
+            ci_level = st.session_state.get("ci_level", 0.95)
+            prophet_model = train_prophet(y_train, interval_width=ci_level)
             yhat, lo, hi = forecast_prophet(prophet_model, test_index=y_test.index)
             results["Prophet"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"Prophet failed: {type(e).__name__}: {e}")
+
 
     st.session_state["baseline_results"] = results  
 

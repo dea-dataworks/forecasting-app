@@ -84,6 +84,7 @@ def train_prophet(
     weekly: bool = True,
     yearly: bool = True,
     daily: bool = False,
+    interval_width: float = 0.95,
 ) -> Optional[object]:
     """
     Fit a Prophet model on train only.
@@ -99,7 +100,7 @@ def train_prophet(
         weekly_seasonality=weekly,
         yearly_seasonality=yearly,
         daily_seasonality=daily,
-        interval_width=0.95,
+        interval_width=float(interval_width),
     )
     model.fit(df)
     return model
