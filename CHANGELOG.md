@@ -95,6 +95,10 @@ Data page: preserved parsed DatetimeIndex when returning from EDA (no more "No p
 Sidebar density toggle: removed st.rerun() callback to avoid "no-op" warning; reruns now handled automatically.
 Datetime parsing: removed deprecated infer_datetime_format=True in detect_datetime() (pandas infers automatically).
 
+Phase 17.2 — ACF/PACF Diagnostics
+Added plot_acf_series() and plot_pacf_series() in eda.py.
+Integrated ACF/PACF plots into EDA tab after decomposition.
+Auto‐clipped nlags (≤30 or 10% of series length) with short‐series guardrails.
 
 
 Phase 1 — Data Input & Validation

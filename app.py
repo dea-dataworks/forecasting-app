@@ -389,7 +389,7 @@ def render_data_page() -> None:
 # --- EDA page ---
 def render_eda_page() -> None:
     st.markdown("### EDA")
-    st.caption("Raw plot → Rolling view → Basic stats")
+    st.caption("One main plot (toggle rolling overlay) • Quick stats • Decomposition & ACF/PACF on demand")
 
     df = st.session_state.get("df")
     target_col = st.session_state.get("target_col")
@@ -400,25 +400,27 @@ def render_eda_page() -> None:
 
     y_df = df[[target_col]]  # keep as DataFrame for our plotting helpers
 
-    # --- 1) Raw series (downsample handled inside helper) ---
-    st.subheader("Raw series")
-    try:
-        fig_raw = plot_raw_series(y_df)
-        st.pyplot(fig_raw)
-    except Exception as e:
-        st.warning(f"Could not render raw plot: {e}")
+    # --- Main plot: raw + optional rolling overlay ---
+    st.subheader("Main plot")
+    overlay = st.checkbox("Show rolling overlay", value=False)
 
-    # --- 2) Rolling view ---
-    st.subheader("Rolling view")
-    c1, c2 = st.columns([2, 1])
-    window = c1.slider("Window (points)", min_value=3, max_value=90, value=7, step=1)
-    show_var = c2.checkbox("Show variance/std bands", value=False)
-
-    try:
-        fig_roll = plot_rolling(y_df, window=window, show_var=show_var)
-        st.pyplot(fig_roll)
-    except Exception as e:
-        st.warning(f"Could not render rolling plot: {e}")
+    if not overlay:
+        st.caption("Shows the series as-is.")
+        try:
+            fig = plot_raw_series(y_df)
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"Could not render main plot: {e}")
+    else:
+        c1, c2 = st.columns([2, 1])
+        window = c1.slider("Rolling window (points)", min_value=3, max_value=90, value=7, step=1)
+        show_var = c2.checkbox("Variance bands", value=False, help="Show local variability around the rolling mean.")
+        st.caption("Rolling mean smooths short-term noise; bands (optional) hint at local variability.")
+        try:
+            fig = plot_rolling(y_df, window=window, show_var=show_var)
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"Could not render main plot: {e}")
 
     # --- 3) Basic stats ---
     st.subheader("Basic stats")
@@ -432,39 +434,35 @@ def render_eda_page() -> None:
         st.warning(f"Could not compute basic stats: {e}")
 
     # --- 4) Decomposition ---
-    st.subheader("Decomposition")
-    st.caption("Seasonal–trend decomposition: trend, seasonal, residual.")
-    # Let user override seasonal period
-    period_choice = st.selectbox(
-        "Seasonal period",
-        options=["auto", 7, 12, 24, 52],
-        index=0,
-        help="Auto = guess from frequency. Common choices: 7 (weekly seasonality for daily data), "
-             "12 (monthly seasonality), 24 (hourly seasonality), 52 (weekly seasonality for weekly data)."
-    )
-    period_arg = None if period_choice == "auto" else int(period_choice)
+    with st.expander("Decomposition", expanded=False):
+        st.caption("Trend shows long-term direction. Seasonal captures repeated patterns; residual is leftover noise.")
+        period_choice = st.selectbox(
+            "Seasonal period",
+            options=["auto", 7, 12, 24, 52],
+            index=0,
+            help="Auto = guess from frequency. Common choices: 7 (weekly seasonality for daily data), 12 (monthly seasonality), 24 (hourly seasonality), 52 (weekly seasonality for weekly data)."
+        )
+        period_arg = None if period_choice == "auto" else int(period_choice)
 
-    try:
-        fig_dec = plot_decomposition(y_df, period=period_arg)
-        st.pyplot(fig_dec)
-    except Exception as e:
-        st.warning(f"Decomposition unavailable: {e}")
-    
+        try:
+            fig_dec = plot_decomposition(y_df, period=period_arg)
+            st.pyplot(fig_dec)
+        except Exception as e:
+            st.warning(f"Decomposition unavailable: {e}")
+
     # --- 5) Autocorrelation diagnostics (ACF / PACF) ---
-    st.subheader("Autocorrelation diagnostics")
-    st.caption("ACF shows overall memory across lags; PACF shows direct (partial) effects per lag. "
-               "We auto-clip nlags to keep it readable (≤30 or 10% of length).")
-
-    try:
-        col1, col2 = st.columns(2)
-        with col1:
-            fig_acf = plot_acf_series(y_df)
-            st.pyplot(fig_acf)
-        with col2:
-            fig_pacf = plot_pacf_series(y_df)
-            st.pyplot(fig_pacf)
-    except Exception as e:
-        st.warning(f"ACF/PACF unavailable: {e}")
+    with st.expander("Autocorrelation (ACF) & Partial (PACF)", expanded=False):
+        st.caption("ACF highlights repeating patterns across lags; PACF shows direct effects at each lag. We auto-clip nlags to keep it readable (≤30 or 10% of length).")
+        try:
+            col1, col2 = st.columns(2)
+            with col1:
+                fig_acf = plot_acf_series(y_df)
+                st.pyplot(fig_acf)
+            with col2:
+                fig_pacf = plot_pacf_series(y_df)
+                st.pyplot(fig_pacf)
+        except Exception as e:
+            st.warning(f"ACF/PACF unavailable: {e}")
 
 # --- MODELS Page ---
 def render_models_page() -> None:
