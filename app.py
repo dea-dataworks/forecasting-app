@@ -9,7 +9,7 @@ from src.baselines import train_test_split_ts
 from src.eda import (plot_raw_series, plot_rolling, basic_stats, plot_decomposition,
                     plot_acf_series, plot_pacf_series, infer_season_length_from_freq)
 from src.baselines import run_baseline_suite, format_baseline_report
-from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,)
+from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,build_combined_forecast_table)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
 from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
 
@@ -816,30 +816,108 @@ def render_models_page() -> None:
 
     # --- Exports ---
     st.subheader("Exports")
+
     with st.expander("Download predictions as CSV", expanded=True):
         left, right = st.columns(2)
-        # Let user choose which baseline to export (naïve or movavg)
-        model_names = list(results.keys())
+
+        # Helper: ensure timezone-naive index for CSVs
+        def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+            try:
+                # If tz-aware, drop tz; otherwise returns as-is
+                return idx.tz_convert(None)
+            except Exception:
+                try:
+                    return idx.tz_localize(None)
+                except Exception:
+                    return idx
+
+        # Build a lookup of available model results with optional CI
+        # results[name] = {"y_pred": Series, "lower": Series?, "upper": Series?}
+        model_names = [n for n, r in results.items() if isinstance(r, dict) and "y_pred" in r]
         chosen = left.selectbox("Model", options=model_names, index=0)
+
+        # Per-model CSV (includes CI columns if present)
         try:
-            y_pred = results[chosen]["y_pred"]
-            forecast_df = build_forecast_table(index=y_test.index, y_pred=y_pred)
-            csv_bytes = dataframe_to_csv_bytes(forecast_df)
-            fn = make_default_filenames(base=f"{chosen}_forecast")
-            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
+            r = results[chosen]
+            idx = _naive_index(y_test.index)
+            level = float(st.session_state.get("ci_level", 0.95))
+            H = len(y_test)
+            ci_pct = int(round(level * 100))
+
+            # Pass lower/upper only if present
+            lower = r.get("lower", None)
+            upper = r.get("upper", None)
+
+            fc_df = build_forecast_table(
+                index=idx,
+                y_pred=r["y_pred"],
+                lower=lower,
+                upper=upper,
+            )
+            # Add metadata columns if you want them in the CSV
+            fc_df["model"] = chosen
+            fc_df["level"] = ci_pct
+
+            csv_bytes = dataframe_to_csv_bytes(fc_df)
+            fn = make_default_filenames(base=f"forecast_{chosen.lower()}_h{H}_ci{ci_pct}")
+            left.download_button(
+                "Download CSV (selected model)",
+                data=csv_bytes,
+                file_name=fn["csv"],
+                mime="text/csv",
+                width="stretch",
+            )
         except Exception as e:
             left.warning(f"CSV export unavailable: {e}")
 
-        # PNG of the overlay figure
+        # Combined CSV (all models in one table; adds a 'model' column)
+        try:
+            level = float(st.session_state.get("ci_level", 0.95))
+            ci_pct = int(round(level * 100))
+            idx = _naive_index(y_test.index)
+            H = len(y_test)
+
+            frames = []
+            for name in model_names:
+                r = results[name]
+                fc = build_forecast_table(
+                    index=idx,
+                    y_pred=r["y_pred"],
+                    lower=r.get("lower"),
+                    upper=r.get("upper"),
+                )
+                fc["model"] = name
+                fc["level"] = ci_pct
+                frames.append(fc)
+
+            if frames:
+                combined = pd.concat(frames, axis=0)
+                csv_bytes_all = dataframe_to_csv_bytes(combined)
+                fn_all = make_default_filenames(base=f"forecast_allmodels_h{H}_ci{ci_pct}")
+                right.download_button(
+                    "Download CSV (combined)",
+                    data=csv_bytes_all,
+                    file_name=fn_all["csv"],
+                    mime="text/csv",
+                    width="stretch",
+                )
+            else:
+                right.info("No forecasts available to combine.")
+        except Exception as e:
+            right.warning(f"Combined CSV export unavailable: {e}")
+
+    # Keep PNG export of the overlay below CSVs
+    with st.expander("Download overlay plot (PNG)", expanded=False):
         try:
             if fig is not None:
                 png = figure_to_png_bytes(fig)
                 fn = make_default_filenames(base="baseline_overlay")
-                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
+                st.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
             else:
-                right.info("Run baselines to enable plot export.")
+                st.info("Run baselines to enable plot export.")
         except Exception as e:
-            right.warning(f"PNG export unavailable: {e}")
+            st.warning(f"PNG export unavailable: {e}")
+
 
     st.success("Baselines ready. You can move to **Compare** or enable ARIMA/Prophet later.")
 
@@ -967,28 +1045,57 @@ def render_compare_page() -> None:
 
     # ---- Exports
     st.subheader("Exports")
-    with st.expander("Download a model’s forecast as CSV", expanded=True):
-        left, right = st.columns(2)
-        model_names = list(forecasts.keys())
-        chosen = left.selectbox("Model", options=model_names, index=0)
-        try:
-            y_pred = forecasts[chosen]
-            fc_df = build_forecast_table(index=y_pred.index, y_pred=y_pred)
-            csv_bytes = dataframe_to_csv_bytes(fc_df)
-            fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
-            left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
-        except Exception as e:
-            left.warning(f"CSV export unavailable: {e}")
 
+    with st.expander("Download comparisons as CSV (combined)", expanded=True):
+    # Use the first H points of y_test for a common, tz-naive index
+        idx = y_test.iloc[:H].index
         try:
-            if fig is not None:
-                png = figure_to_png_bytes(fig)
-                fn = make_default_filenames(base=f"compare_overlay_H{H}")
-                right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
-            else:
-                right.info("Run comparison to enable plot export.")
+            # CI level (if/when you add per-model lower/upper later)
+            level = float(st.session_state.get("ci_level", 0.95))
+            ci_pct = int(round(level * 100))
+
+            combined_df = build_combined_forecast_table(
+                forecasts=forecasts,
+                index=idx,
+                level=ci_pct,
+                # lower=lower_dict,  # optional (future)
+                # upper=upper_dict,  # optional (future)
+            )
+
+            csv_bytes = dataframe_to_csv_bytes(combined_df)
+            fn = make_default_filenames(base=f"compare_allmodels_h{H}_ci{ci_pct}")
+            st.download_button(
+                "Download CSV (combined forecasts)",
+                data=csv_bytes,
+                file_name=fn["csv"],
+                mime="text/csv",
+                width="stretch",
+            )
         except Exception as e:
-            right.warning(f"PNG export unavailable: {e}")
+            st.warning(f"Combined CSV export unavailable: {e}")
+
+        with st.expander("Download a model’s forecast as CSV", expanded=True):
+            left, right = st.columns(2)
+            model_names = list(forecasts.keys())
+            chosen = left.selectbox("Model", options=model_names, index=0)
+            try:
+                y_pred = forecasts[chosen]
+                fc_df = build_forecast_table(index=y_pred.index, y_pred=y_pred)
+                csv_bytes = dataframe_to_csv_bytes(fc_df)
+                fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
+                left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
+            except Exception as e:
+                left.warning(f"CSV export unavailable: {e}")
+
+            try:
+                if fig is not None:
+                    png = figure_to_png_bytes(fig)
+                    fn = make_default_filenames(base=f"compare_overlay_H{H}")
+                    right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
+                else:
+                    right.info("Run comparison to enable plot export.")
+            except Exception as e:
+                right.warning(f"PNG export unavailable: {e}")
 
     st.success("Comparison ready. Add ARIMA/Prophet later to broaden the race.")
 

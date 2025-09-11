@@ -333,6 +333,78 @@ def compute_metrics_table(
 
     return df
 
+def build_combined_forecast_table(
+    forecasts: Dict[str, pd.Series],
+    *,
+    lower: Dict[str, pd.Series] | None = None,
+    upper: Dict[str, pd.Series] | None = None,
+    index: pd.DatetimeIndex | None = None,
+    level: int | None = None,
+) -> pd.DataFrame:
+    """
+    Build a tidy combined forecast table across models, optionally including CI bands.
+
+    Parameters
+    ----------
+    forecasts : dict[str, pd.Series]
+        Model -> forecast Series. Each should be indexed by the forecast horizon.
+    lower, upper : dict[str, pd.Series] or None
+        Optional per-model lower/upper bands. If provided, aligned to `index` (or model's own index).
+    index : pd.DatetimeIndex or None
+        Optional common index to reindex all forecasts/bands to. If None, each model keeps its own index.
+        (In app usage, pass y_test.index to ensure alignment and a timezone-naive index.)
+    level : int or None
+        Confidence level percentage to annotate (e.g., 95). Stored in a 'level' column.
+
+    Returns
+    -------
+    pd.DataFrame
+        Long-form table with index as timestamps and columns:
+        ['yhat', 'lower', 'upper', 'model', 'level'] (CI columns present only if provided).
+    """
+    def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+        # Drop timezone if present; keep as-is otherwise
+        try:
+            return idx.tz_convert(None)
+        except Exception:
+            try:
+                return idx.tz_localize(None)
+            except Exception:
+                return idx
+
+    frames: list[pd.DataFrame] = []
+    for name, fc in forecasts.items():
+        if fc is None or len(fc) == 0:
+            continue
+
+        series_idx = index if index is not None else fc.index
+        series_idx = _naive_index(pd.DatetimeIndex(series_idx))
+
+        # yhat
+        yhat = pd.Series(fc, copy=False).reindex(series_idx)
+        df = pd.DataFrame({"yhat": yhat.astype("float64")}, index=series_idx)
+
+        # optional CI
+        if lower is not None and name in lower:
+            lo = pd.Series(lower[name], copy=False).reindex(series_idx)
+            df["lower"] = lo.astype("float64")
+        if upper is not None and name in upper:
+            hi = pd.Series(upper[name], copy=False).reindex(series_idx)
+            df["upper"] = hi.astype("float64")
+
+        df["model"] = name
+        if level is not None:
+            df["level"] = int(level)
+        frames.append(df)
+
+    if not frames:
+        raise ValueError("No forecasts available to export.")
+
+    combined = pd.concat(frames, axis=0)
+    # Ensure a clean index name for CSVs
+    combined.index.name = combined.index.name or "ds"
+    return combined
+
 def plot_overlay(
     y_train: pd.Series,
     y_test: pd.Series,
