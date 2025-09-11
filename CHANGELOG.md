@@ -107,6 +107,16 @@ Wrapped decomposition into an expandable section with short explanatory text.
 Wrapped ACF/PACF into a separate expander with cue text.
 Updated page caption to reflect simplified flow.
 
+Phase 18
+
+- Added
+        - `eda.py`: new helper `infer_season_length_from_freq(freq)` to guess seasonal period `m` from dataset frequency.
+        - `app.py`: Confidence level slider (0.50–0.99) wired to ARIMA (`alpha = 1 - level`).
+        - `classical.py`: `train_prophet(...)` now accepts `interval_width` argument; wired to the same Confidence slider.
+        - `app.py`: fitted ARIMA/Prophet models now stashed in `st.session_state["models"]`.
+        - `app.py`: Train tail slider on Models page to control overlay plot window.
+
+
 
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
@@ -625,6 +626,90 @@ def render_models_page() -> None:
     except Exception as e:
         st.warning(f"Could not render overlay: {e}")
         fig = None
+
+    # --- Residual diagnostics ---
+    with st.expander("Residual diagnostics", expanded=False):
+        models_dict = st.session_state.get("models", {}) or {}
+        available = []
+        if "arima" in models_dict:
+            available.append("ARIMA")
+        if "prophet" in models_dict:
+            available.append("Prophet")
+
+        if not available:
+            st.info("Train **ARIMA** or **Prophet** to see residual diagnostics.")
+        else:
+            # Optional seasonality hint from inferred freq
+            freq = st.session_state.get("freq")
+            m_hint = infer_season_length_from_freq(freq)
+            if m_hint:
+                st.caption(f"Seasonality hint: m = {m_hint} (from freq = {freq}).")
+
+            choice = st.selectbox("Model", options=available, index=0, key="resid_model_choice")
+            y_train = st.session_state.get("train")
+
+            resid = None
+            if choice == "ARIMA":
+                arima_model = models_dict.get("arima")
+                try:
+                    # pmdarima-style in-sample prediction
+                    fitted_vals = pd.Series(arima_model.predict_in_sample(), index=y_train.index)
+                except Exception:
+                    # fallbacks
+                    try:
+                        fv = getattr(arima_model, "fittedvalues", None)
+                        if fv is None:
+                            raise AttributeError("no fittedvalues")
+                        fv = pd.Series(fv)
+                        if len(fv) == len(y_train):
+                            fitted_vals = fv.set_axis(y_train.index)
+                        else:
+                            # align last part to train index
+                            fitted_vals = pd.Series(fv.values[-len(y_train):], index=y_train.index)
+                    except Exception as e:
+                        st.warning(f"ARIMA fitted values unavailable ({type(e).__name__}: {e}). Using 1-step lag as fallback.")
+                        fitted_vals = y_train.shift(1)
+                resid = (y_train - fitted_vals).dropna()
+
+            else:  # Prophet
+                prophet_model = models_dict.get("prophet")
+                try:
+                    ds_df = pd.DataFrame({"ds": y_train.index})
+                    fcst = prophet_model.predict(ds_df)
+                    fitted_vals = pd.Series(fcst["yhat"].values, index=y_train.index)
+                    resid = (y_train - fitted_vals).dropna()
+                except Exception as e:
+                    st.warning(f"Prophet fitted values unavailable: {e}")
+                    resid = pd.Series(dtype="float64")
+
+            if resid is None or len(resid) < 3:
+                st.info("Residuals unavailable or too short to diagnose.")
+            else:
+                # Residual line
+                try:
+                    fig_r, ax_r = plt.subplots(figsize=(10, 3))
+                    ax_r.plot(resid.index, resid.values, linewidth=1)
+                    ax_r.axhline(0, linestyle="--", linewidth=1)
+                    ax_r.set_title(f"{choice} residuals")
+                    ax_r.set_xlabel("Time")
+                    ax_r.set_ylabel("Residual")
+                    fig_r.tight_layout()
+                    st.pyplot(fig_r)
+                except Exception as e:
+                    st.warning(f"Residual plot unavailable: {e}")
+
+                # ACF / PACF on residuals (clip lags: ≤30 or 10% of length)
+                try:
+                    nlags = min(30, max(1, len(resid) // 10))
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        fig_acf = plot_acf_series(resid.to_frame("resid"), max_lags=nlags)
+                        st.pyplot(fig_acf)
+                    with c2:
+                        fig_pacf = plot_pacf_series(resid.to_frame("resid"), max_lags=nlags)
+                        st.pyplot(fig_pacf)
+                except Exception as e:
+                    st.warning(f"Residual ACF/PACF unavailable: {e}")
 
     # --- Exports ---
     st.subheader("Exports")
