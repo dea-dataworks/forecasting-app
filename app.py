@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
 from src.baselines import train_test_split_ts
-from src.eda import plot_raw_series, plot_rolling, basic_stats, plot_decomposition
+from src.eda import plot_raw_series, plot_rolling, basic_stats, plot_decomposition, plot_acf_series, plot_pacf_series
 from src.baselines import run_baseline_suite, format_baseline_report
 from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
@@ -449,7 +449,22 @@ def render_eda_page() -> None:
         st.pyplot(fig_dec)
     except Exception as e:
         st.warning(f"Decomposition unavailable: {e}")
+    
+    # --- 5) Autocorrelation diagnostics (ACF / PACF) ---
+    st.subheader("Autocorrelation diagnostics")
+    st.caption("ACF shows overall memory across lags; PACF shows direct (partial) effects per lag. "
+               "We auto-clip nlags to keep it readable (≤30 or 10% of length).")
 
+    try:
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_acf = plot_acf_series(y_df)
+            st.pyplot(fig_acf)
+        with col2:
+            fig_pacf = plot_pacf_series(y_df)
+            st.pyplot(fig_pacf)
+    except Exception as e:
+        st.warning(f"ACF/PACF unavailable: {e}")
 
 # --- MODELS Page ---
 def render_models_page() -> None:

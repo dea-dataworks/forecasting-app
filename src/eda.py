@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
 def plot_raw_series(df):
     """
@@ -232,3 +233,92 @@ def plot_decomposition(df, period: int | None = None, model: str = "additive"):
     axes[2].set_xlabel("Time")
     fig.tight_layout()
     return fig
+
+def _auto_nlags(n: int) -> int:
+    """
+    Choose a safe, readable nlags: min(30, 10% of length), but < n-1.
+    Ensures at least 1 lag.
+    """
+    if n <= 3:
+        return 1
+    nl = max(1, int(n * 0.10))
+    nl = min(nl, 30)
+    # statsmodels requires nlags < n - 1
+    return max(1, min(nl, n - 2))
+
+
+def plot_acf_series(df: pd.DataFrame, max_lags: int | None = None):
+    """
+    Plot ACF for a single-column time series with CI bands and safe lag clipping.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame must have a DatetimeIndex")
+    if df.shape[1] != 1:
+        raise ValueError("DataFrame must have exactly one value column")
+
+    s = df.iloc[:, 0].dropna()
+    n = len(s)
+    if n < 3:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"ACF unavailable: series too short ({n} points).", ha="center", va="center")
+        fig.tight_layout()
+        return fig
+
+    nlags = _auto_nlags(n) if max_lags is None else max(1, min(max_lags, n - 2))
+    try:
+        fig, ax = plt.subplots(figsize=(10, 3.2))
+        plot_acf(s, lags=nlags, ax=ax, zero=False)
+        ax.set_title(f"ACF (nlags={nlags})")
+        ax.set_xlabel("Lag")
+        fig.tight_layout()
+        return fig
+    except Exception as e:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"ACF unavailable: {type(e).__name__}: {e}", ha="center", va="center")
+        fig.tight_layout()
+        return fig
+
+
+def plot_pacf_series(df: pd.DataFrame, max_lags: int | None = None):
+    """
+    Plot PACF for a single-column time series with CI bands and safe lag clipping.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame must have a DatetimeIndex")
+    if df.shape[1] != 1:
+        raise ValueError("DataFrame must have exactly one value column")
+
+    s = df.iloc[:, 0].dropna()
+    n = len(s)
+    if n < 3:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"PACF unavailable: series too short ({n} points).", ha="center", va="center")
+        fig.tight_layout()
+        return fig
+
+    nlags = _auto_nlags(n) if max_lags is None else max(1, min(max_lags, n - 2))
+    try:
+        fig, ax = plt.subplots(figsize=(10, 3.2))
+        # yule-walker MLE is generally stable for short samples
+        plot_pacf(s, lags=nlags, ax=ax, method="ywmle", zero=False)
+        ax.set_title(f"PACF (nlags={nlags})")
+        ax.set_xlabel("Lag")
+        fig.tight_layout()
+        return fig
+    except Exception as e:
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"PACF unavailable: {type(e).__name__}: {e}", ha="center", va="center")
+        fig.tight_layout()
+        return fig
