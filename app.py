@@ -857,12 +857,16 @@ def render_models_page() -> None:
     st.subheader("Exports")
 
     with st.expander("Download predictions as CSV", expanded=True):
-        left, right = st.columns(2)
+        # Row 1: selector
+        chosen = st.selectbox(
+            "Model",
+            options=[n for n, r in results.items() if isinstance(r, dict) and "y_pred" in r],
+            index=0,
+        )
 
         # Helper: ensure timezone-naive index for CSVs
         def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
             try:
-                # If tz-aware, drop tz; otherwise returns as-is
                 return idx.tz_convert(None)
             except Exception:
                 try:
@@ -870,12 +874,10 @@ def render_models_page() -> None:
                 except Exception:
                     return idx
 
-        # Build a lookup of available model results with optional CI
-        # results[name] = {"y_pred": Series, "lower": Series?, "upper": Series?}
-        model_names = [n for n, r in results.items() if isinstance(r, dict) and "y_pred" in r]
-        chosen = left.selectbox("Model", options=model_names, index=0)
+        # Row 2: two buttons
+        col_sel, col_all = st.columns(2)
 
-        # Per-model CSV (includes CI columns if present)
+        # Per-model CSV
         try:
             r = results[chosen]
             idx = _naive_index(y_test.index)
@@ -883,33 +885,28 @@ def render_models_page() -> None:
             H = len(y_test)
             ci_pct = int(round(level * 100))
 
-            # Pass lower/upper only if present
-            lower = r.get("lower", None)
-            upper = r.get("upper", None)
-
             fc_df = build_forecast_table(
                 index=idx,
                 y_pred=r["y_pred"],
-                lower=lower,
-                upper=upper,
+                lower=r.get("lower"),
+                upper=r.get("upper"),
             )
-            # Add metadata columns if you want them in the CSV
             fc_df["model"] = chosen
             fc_df["level"] = ci_pct
 
             csv_bytes = dataframe_to_csv_bytes(fc_df)
             fn = make_default_filenames(base=f"forecast_{chosen.lower()}_h{H}_ci{ci_pct}")
-            left.download_button(
+            col_sel.download_button(
                 "Download CSV (selected model)",
                 data=csv_bytes,
                 file_name=fn["csv"],
                 mime="text/csv",
-                width="stretch",
+                use_container_width=True,
             )
         except Exception as e:
-            left.warning(f"CSV export unavailable: {e}")
+            col_sel.warning(f"CSV export unavailable: {e}")
 
-        # Combined CSV (all models in one table; adds a 'model' column)
+        # Combined CSV
         try:
             level = float(st.session_state.get("ci_level", 0.95))
             ci_pct = int(round(level * 100))
@@ -917,33 +914,28 @@ def render_models_page() -> None:
             H = len(y_test)
 
             frames = []
-            for name in model_names:
-                r = results[name]
-                fc = build_forecast_table(
-                    index=idx,
-                    y_pred=r["y_pred"],
-                    lower=r.get("lower"),
-                    upper=r.get("upper"),
-                )
-                fc["model"] = name
-                fc["level"] = ci_pct
-                frames.append(fc)
+            for name, r in results.items():
+                if "y_pred" in r:
+                    fc = build_forecast_table(index=idx, y_pred=r["y_pred"], lower=r.get("lower"), upper=r.get("upper"))
+                    fc["model"] = name
+                    fc["level"] = ci_pct
+                    frames.append(fc)
 
             if frames:
                 combined = pd.concat(frames, axis=0)
                 csv_bytes_all = dataframe_to_csv_bytes(combined)
                 fn_all = make_default_filenames(base=f"forecast_allmodels_h{H}_ci{ci_pct}")
-                right.download_button(
+                col_all.download_button(
                     "Download CSV (combined)",
                     data=csv_bytes_all,
                     file_name=fn_all["csv"],
                     mime="text/csv",
-                    width="stretch",
+                    use_container_width=True,
                 )
             else:
-                right.info("No forecasts available to combine.")
+                col_all.info("No forecasts available to combine.")
         except Exception as e:
-            right.warning(f"Combined CSV export unavailable: {e}")
+            col_all.warning(f"Combined CSV export unavailable: {e}")
 
     # Keep PNG export of the overlay below CSVs
     with st.expander("Download overlay plot (PNG)", expanded=False):

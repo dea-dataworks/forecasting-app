@@ -10,6 +10,9 @@ ArrayLike = Union[pd.Series, Sequence[float], np.ndarray]
 def build_forecast_table(
     index: pd.DatetimeIndex,
     y_pred: ArrayLike,
+    # Accept both naming styles for compatibility with callers
+    lower: Optional[ArrayLike] = None,
+    upper: Optional[ArrayLike] = None,
     lower_ci: Optional[ArrayLike] = None,
     upper_ci: Optional[ArrayLike] = None,
 ) -> pd.DataFrame:
@@ -45,16 +48,20 @@ def build_forecast_table(
 
     yhat = _to_1d_series(y_pred, "y_pred", n)
 
+    # Choose which CI args to use (prefer explicit 'lower'/'upper' if provided)
+    eff_lower = lower if lower is not None else lower_ci
+    eff_upper = upper if upper is not None else upper_ci
+
     # Try to coerce CIs; if lengths mismatch, we skip them gracefully.
     lower_s = upper_s = None
-    if lower_ci is not None:
+    if eff_lower is not None:
         try:
-            lower_s = _to_1d_series(lower_ci, "lower_ci", n)
+            lower_s = _to_1d_series(eff_lower, "lower", n)
         except Exception:
             lower_s = None
-    if upper_ci is not None:
+    if eff_upper is not None:
         try:
-            upper_s = _to_1d_series(upper_ci, "upper_ci", n)
+            upper_s = _to_1d_series(eff_upper, "upper", n)
         except Exception:
             upper_s = None
 
