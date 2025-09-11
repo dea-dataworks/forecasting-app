@@ -984,8 +984,11 @@ def render_compare_page() -> None:
                 return _call
             models[name] = _mk_callable(res["y_pred"])
 
-    # (Optional) add ARIMA / Prophet later if you store trained models in session
-    # e.g., if "arima_model" in st.session_state: models["arima"] = lambda h, **kw: forecast_arima(...)
+    trained = st.session_state.get("models", {}) or {}
+    if "arima" in trained and "ARIMA" not in models:
+        models["ARIMA"] = trained["arima"]
+    if "prophet" in trained and "Prophet" not in models:
+        models["Prophet"] = trained["prophet"]
 
     if not models:
         st.info("No models available yet. Run baselines on the **Models** page.")
@@ -1048,8 +1051,12 @@ def render_compare_page() -> None:
     metrics_df = st.session_state["compare_cache"]["metrics_df"]
 
     st.subheader("Leaderboard")
-    st.caption(f"H = {H} steps")
-    st.dataframe(metrics_df, width="stretch")
+    st.caption(f"H = {H} • freq = {to_human_freq(freq)}")
+
+    # Round for display only (don’t affect sorting)
+    metrics_display = metrics_df.round(4)
+
+    st.dataframe(metrics_display, width="stretch")
     st.caption(f"done in {st.session_state['compare_cache']['dt']:.2f}s")
 
     # ---- Overlay plot
@@ -1085,7 +1092,7 @@ def render_compare_page() -> None:
             density=density,
             tail=tail,
         )
-        
+
         st.subheader("Overlay")
         st.pyplot(fig)
     except Exception as e:
@@ -1185,7 +1192,19 @@ def render_compare_page() -> None:
             col_png.warning(f"PNG export unavailable: {e}")
 
 
-    st.success("Comparison ready. Add ARIMA/Prophet later to broaden the race.")
+    # Context-aware success note: acknowledge if classical models were auto-included
+    models_dict = st.session_state.get("models", {}) or {}
+    included = []
+    if "arima" in models_dict and "ARIMA" in forecasts:
+        included.append("ARIMA")
+    if "prophet" in models_dict and "Prophet" in forecasts:
+        included.append("Prophet")
+
+    if included:
+        st.success(f"Comparison ready. Included trained {', '.join(included)} from **Models**.")
+    else:
+        st.success("Comparison ready. Train **ARIMA** or **Prophet** on the **Models** page to broaden the race.")
+
 
 # DELETE
 def render_placeholder_page(name: str) -> None:
