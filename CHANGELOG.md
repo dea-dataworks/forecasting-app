@@ -90,7 +90,10 @@ Merged Dataset summary and Sampling frequency & gaps into a single expander.
 Clean 2-column layout now shows: Rows, Cols, Start, End, Sampling freq, Missing timestamps, Expected timestamps, % missing timestamps.
 Removed redundant "Top missing" info to keep the panel focused.
 
-
+Phase 16 EDA page
+Data page: preserved parsed DatetimeIndex when returning from EDA (no more "No parseable datetime column" error).
+Sidebar density toggle: removed st.rerun() callback to avoid "no-op" warning; reruns now handled automatically.
+Datetime parsing: removed deprecated infer_datetime_format=True in detect_datetime() (pandas infers automatically).
 
 
 

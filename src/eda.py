@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+from statsmodels.tsa.seasonal import seasonal_decompose
 
 def plot_raw_series(df):
     """
@@ -137,3 +138,97 @@ def basic_stats(df):
         "max": float(s_nonnull.max()),
         "mean": float(s_nonnull.mean()),
     }
+
+def plot_decomposition(df, period: int | None = None, model: str = "additive"):
+    """
+    Plot seasonal-trend decomposition (Trend, Seasonal, Residual) as 3 stacked subplots.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with a DatetimeIndex and exactly one numeric column.
+    period : int, optional
+        Seasonal period. If None, try to infer from index frequency (D->7, W->52, M/MS->12, Q/QS->4, H->24, B->7).
+        If it cannot be inferred, a ValueError is raised with guidance.
+    model : {"additive", "multiplicative"}, default "additive"
+        Decomposition model.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+
+    Raises
+    ------
+    ValueError
+        If input is invalid, series too short (< 2*period), cannot infer period, or decomposition fails.
+    """
+    # --- basic checks ---
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame must have a DatetimeIndex")
+    if df.shape[1] != 1:
+        raise ValueError("DataFrame must have exactly one value column")
+    if model not in {"additive", "multiplicative"}:
+        raise ValueError("model must be 'additive' or 'multiplicative'")
+
+    s = df.iloc[:, 0].dropna()
+    n = len(s)
+    if n < 3:
+        raise ValueError(f"Series too short ({n} points) for decomposition.")
+
+    # --- infer period if not provided ---
+    def _guess_period(idx: pd.DatetimeIndex) -> int | None:
+        alias = pd.infer_freq(idx)
+        if not alias:
+            return None
+        alias = alias.upper()
+        # Map common aliases
+        if alias in {"D", "B"}:
+            return 7
+        if alias == "W":
+            return 52
+        if alias in {"M", "MS"}:
+            return 12
+        if alias in {"Q", "QS"}:
+            return 4
+        if alias == "H":
+            return 24
+        return None
+
+    if period is None:
+        period = _guess_period(s.index)
+
+    if period is None:
+        raise ValueError(
+            "Could not infer a seasonal period from the index. "
+            "Try regularizing to a known frequency (e.g., Daily/Monthly) or pass a period explicitly."
+        )
+
+    # Require at least two full seasons for a stable result
+    if n < 2 * period:
+        raise ValueError(
+            f"Series too short for decomposition: need at least 2×period = {2*period} points, have {n}."
+        )
+
+    # --- decomposition ---
+    try:
+        res = seasonal_decompose(s, model=model, period=period, two_sided=True, extrapolate_trend="freq")
+    except Exception as e:
+        raise ValueError(f"Decomposition failed: {type(e).__name__}: {e}") from e
+
+    # --- plot (3 stacked subplots) ---
+    fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    axes[0].plot(res.trend, label="Trend")
+    axes[0].set_title("Trend")
+    axes[0].legend(loc="upper left")
+
+    axes[1].plot(res.seasonal, label="Seasonal")
+    axes[1].set_title("Seasonal")
+    axes[1].legend(loc="upper left")
+
+    axes[2].plot(res.resid, label="Residual (noise)")
+    axes[2].set_title("Residual (noise)")
+    axes[2].legend(loc="upper left")
+
+    axes[2].set_xlabel("Time")
+    fig.tight_layout()
+    return fig

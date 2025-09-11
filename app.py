@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
 from src.baselines import train_test_split_ts
-from src.eda import plot_raw_series, plot_rolling, basic_stats
+from src.eda import plot_raw_series, plot_rolling, basic_stats, plot_decomposition
 from src.baselines import run_baseline_suite, format_baseline_report
 from src.compare import (validate_horizon, make_future_index, generate_forecasts,compute_metrics_table,plot_overlay,)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
@@ -430,6 +430,26 @@ def render_eda_page() -> None:
         m3.metric("Max", f"{stats['max']:.3f}")
     except Exception as e:
         st.warning(f"Could not compute basic stats: {e}")
+
+    # --- 4) Decomposition ---
+    st.subheader("Decomposition")
+    st.caption("Seasonal–trend decomposition: trend, seasonal, residual.")
+    # Let user override seasonal period
+    period_choice = st.selectbox(
+        "Seasonal period",
+        options=["auto", 7, 12, 24, 52],
+        index=0,
+        help="Auto = guess from frequency. Common choices: 7 (weekly seasonality for daily data), "
+             "12 (monthly seasonality), 24 (hourly seasonality), 52 (weekly seasonality for weekly data)."
+    )
+    period_arg = None if period_choice == "auto" else int(period_choice)
+
+    try:
+        fig_dec = plot_decomposition(y_df, period=period_arg)
+        st.pyplot(fig_dec)
+    except Exception as e:
+        st.warning(f"Decomposition unavailable: {e}")
+
 
 # --- MODELS Page ---
 def render_models_page() -> None:
