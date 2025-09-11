@@ -1046,16 +1046,20 @@ def render_compare_page() -> None:
 
     # ---- Overlay plot
     try:
-        # Offer CI only for models that have lower+upper aligned to y_test[:H]
+        # show the CI selector only when any model provides lower/upper.
         lower: dict[str, pd.Series] = {}
         upper: dict[str, pd.Series] = {}
 
         ci_candidates = sorted(set(lower.keys()) & set(upper.keys()) & set(forecasts.keys()))
-        ci_options = ["(none)"] + ci_candidates
-        ci_default = 0
-        ci_model = st.selectbox("Show CI band from", options=ci_options, index=ci_default, key="compare_ci_model")
-        ci_model = None if ci_model == "(none)" else ci_model
-
+        if ci_candidates:
+            ci_model = st.selectbox(
+                "Show CI band from",
+                options=ci_candidates,
+                index=0,
+                key="compare_ci_model",
+            )
+        else:
+            ci_model = None
         density = st.session_state.get("density", "expanded")
 
         fig = plot_overlay(
@@ -1078,7 +1082,7 @@ def render_compare_page() -> None:
     st.subheader("Exports")
 
     with st.expander("Download comparisons as CSV (combined)", expanded=True):
-    # Use the first H points of y_test for a common, tz-naive index
+        # Use the first H points of y_test for a common, tz-naive index
         idx = y_test.iloc[:H].index
         try:
             # CI level (if/when you add per-model lower/upper later)
@@ -1105,28 +1109,51 @@ def render_compare_page() -> None:
         except Exception as e:
             st.warning(f"Combined CSV export unavailable: {e}")
 
-        with st.expander("Download a model’s forecast as CSV", expanded=True):
-            left, right = st.columns(2)
-            model_names = list(forecasts.keys())
-            chosen = left.selectbox("Model", options=model_names, index=0)
+    # SIBLING expander (not nested)
+    with st.expander("Download a model’s forecast as CSV", expanded=True):
+        left, right = st.columns(2)
+        model_names = list(forecasts.keys())
+        chosen = left.selectbox("Model", options=model_names, index=0)
+        try:
+            y_pred = forecasts[chosen]
+            # Ensure timezone-naive index for CSVs
+            idx = y_pred.index
             try:
-                y_pred = forecasts[chosen]
-                fc_df = build_forecast_table(index=y_pred.index, y_pred=y_pred)
-                csv_bytes = dataframe_to_csv_bytes(fc_df)
-                fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
-                left.download_button("Download CSV", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width="stretch")
-            except Exception as e:
-                left.warning(f"CSV export unavailable: {e}")
+                idx = idx.tz_convert(None)
+            except Exception:
+                try:
+                    idx = idx.tz_localize(None)
+                except Exception:
+                    pass
 
-            try:
-                if fig is not None:
-                    png = figure_to_png_bytes(fig)
-                    fn = make_default_filenames(base=f"compare_overlay_H{H}")
-                    right.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
-                else:
-                    right.info("Run comparison to enable plot export.")
-            except Exception as e:
-                right.warning(f"PNG export unavailable: {e}")
+            fc_df = build_forecast_table(index=idx, y_pred=y_pred)
+            csv_bytes = dataframe_to_csv_bytes(fc_df)
+            fn = make_default_filenames(base=f"{chosen}_compare_H{H}")
+            left.download_button(
+                "Download CSV",
+                data=csv_bytes,
+                file_name=fn["csv"],
+                mime="text/csv",
+                width="stretch",
+            )
+        except Exception as e:
+            left.warning(f"CSV export unavailable: {e}")
+
+        try:
+            if fig is not None:
+                png = figure_to_png_bytes(fig)
+                fn = make_default_filenames(base=f"compare_overlay_H{H}")
+                right.download_button(
+                    "Download PNG",
+                    data=png,
+                    file_name=fn["png"],
+                    mime="image/png",
+                    width="stretch",
+                )
+            else:
+                right.info("Run comparison to enable plot export.")
+        except Exception as e:
+            right.warning(f"PNG export unavailable: {e}")
 
     st.success("Comparison ready. Add ARIMA/Prophet later to broaden the race.")
 

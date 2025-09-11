@@ -119,6 +119,9 @@ Phase 18
         - Compare page: Added combined CSV export across all models with consistent index and CI annotation.
         - Models: added Prophet seasonality checkboxes (weekly/yearly/daily) and ARIMA seasonal period (m) override (Auto/7/12/24/52). Uses shared CI slider. 
         - Added spinners with elapsed time display for ARIMA and Prophet training on Models page.
+        - Fixed CSV export errors by updating `build_forecast_table` to accept `lower`/`upper` args alongside legacy `lower_ci`/`upper_ci`.
+        - Reworked CSV download UI on Models page: model selector on top, aligned side-by-side buttons below.
+
 
 
 
