@@ -6,15 +6,12 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
-from src.baselines import train_test_split_ts
 from src.eda import (plot_raw_series, plot_rolling, basic_stats, plot_decomposition,
                     plot_acf_series, plot_pacf_series, infer_season_length_from_freq)
-from src.baselines import run_baseline_suite, format_baseline_report
+from src.baselines import run_baseline_suite, format_baseline_report, train_test_split_ts
 from src.compare import (validate_horizon, generate_forecasts, compute_metrics_table, plot_overlay, build_combined_forecast_table)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
 from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
-
-
 
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:

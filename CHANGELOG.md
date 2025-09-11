@@ -136,6 +136,9 @@ Overlay tail synced with Models page slider (train_tail, fallback 200).
 Auto-included trained ARIMA/Prophet from Models page (no duplicates).
 Leaderboard caption expanded with horizon + human frequency; metrics rounded to 4 decimals.
 Success note adapts if ARIMA/Prophet were auto-included.
+Compare now recomputes only on Compare models click; reuses cached forecasts.
+Leaderboard/overlay/exports use cached H (shown as H_eff).
+Shows hint when parameters change without recomputing.
 
 
 
