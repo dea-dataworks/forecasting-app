@@ -600,11 +600,39 @@ def render_models_page() -> None:
 
     st.session_state["baseline_results"] = results  
 
+    # --- Backfill metrics for models that don't have them (e.g., ARIMA/Prophet) ---
+    try:
+        # Build a simple forecasts dict for metric computation
+        forecasts_for_metrics = {
+            name: r["y_pred"]
+            for name, r in results.items()
+            if isinstance(r, dict) and "y_pred" in r
+        }
+
+        # Reuse the compare-page metric helper for consistency
+        mt = compute_metrics_table(
+            y_true=y_test,                 # full H on Models page
+            forecasts=forecasts_for_metrics,
+            include_smape=False,
+            include_mase=False,
+            y_train_for_mase=None,
+            sort_by="RMSE",
+            ascending=True,
+        )
+
+        # Attach each row back to results[name]["metrics"] if missing
+        for name in forecasts_for_metrics.keys():
+            if "metrics" not in results.get(name, {}):
+                results[name]["metrics"] = mt.loc[name].to_dict()
+    except Exception as e:
+        st.info(f"Metrics backfill skipped: {e}")
+
     # --- Metrics table ---
     try:
         table = format_baseline_report(results)
         st.subheader("Metrics")
         st.dataframe(table, width="stretch")
+
     except Exception as e:
         st.warning(f"Could not format metrics table: {e}")
         table = None
