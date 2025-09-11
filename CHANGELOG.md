@@ -115,7 +115,8 @@ Phase 18
         - `classical.py`: `train_prophet(...)` now accepts `interval_width` argument; wired to the same Confidence slider.
         - `app.py`: fitted ARIMA/Prophet models now stashed in `st.session_state["models"]`.
         - `app.py`: Train tail slider on Models page to control overlay plot window.
-
+        - Models page: CSV export now includes yhat, lower, upper, plus model + level; filenames show horizon + CI.
+        - Compare page: Added combined CSV export across all models with consistent index and CI annotation.
 
 
 

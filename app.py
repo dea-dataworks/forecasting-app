@@ -502,6 +502,17 @@ def render_models_page() -> None:
     st.session_state["ci_level"] = ci_level
     alpha = 1.0 - ci_level
 
+    # Prophet seasonalities (UI passthrough)
+    p1, p2, p3 = st.columns(3)
+    prophet_weekly = p1.checkbox("Prophet: Weekly", value=True, disabled=not HAS_PROPHET)
+    prophet_yearly = p2.checkbox("Prophet: Yearly", value=True, disabled=not HAS_PROPHET)
+    prophet_daily  = p3.checkbox("Prophet: Daily",  value=False, disabled=not HAS_PROPHET,
+                                 help="Daily seasonality is usually for sub-daily data.")
+
+    st.session_state["prophet_weekly"] = prophet_weekly
+    st.session_state["prophet_yearly"] = prophet_yearly
+    st.session_state["prophet_daily"]  = prophet_daily
+
     # Early gate remains after toggles so they are visible on first visit
     if not run_button and "baseline_results" not in st.session_state:
         st.stop()
@@ -524,12 +535,19 @@ def render_models_page() -> None:
 
 
     # ARIMA (safe defaults)
-    # ARIMA (safe defaults)
     if use_arima:
         try:
             freq = st.session_state.get("freq")
-            m = infer_season_length_from_freq(freq)
-            seasonal = m is not None
+            m_choice = st.session_state.get("arima_m_choice", "Auto")
+
+            if m_choice == "Auto":
+                m = infer_season_length_from_freq(freq)
+            else:
+                m = int(m_choice)
+
+            # Seasonal iff m is a meaningful seasonal length (>1)
+            seasonal = (m is not None) and (m > 1)
+
             arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
 
             # NEW — stash fitted model
@@ -546,11 +564,22 @@ def render_models_page() -> None:
         except Exception as e:
             st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
 
+
     # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
     if use_prophet:
         try:
             ci_level = st.session_state.get("ci_level", 0.95)
-            prophet_model = train_prophet(y_train, interval_width=ci_level)
+            w = st.session_state.get("prophet_weekly", True)
+            y = st.session_state.get("prophet_yearly", True)
+            d = st.session_state.get("prophet_daily", False)
+
+            prophet_model = train_prophet(
+                y_train,
+                weekly=w,
+                yearly=y,
+                daily=d,
+                interval_width=ci_level,
+            )
 
             # NEW — stash fitted model
             st.session_state.setdefault("models", {})
@@ -560,6 +589,7 @@ def render_models_page() -> None:
             results["Prophet"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"Prophet failed: {type(e).__name__}: {e}")
+
 
     st.session_state["baseline_results"] = results  
 
