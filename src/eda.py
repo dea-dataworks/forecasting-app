@@ -244,15 +244,15 @@ def plot_decomposition(df, period: int | None = None, model: str = "additive"):
     fig, axes = plt.subplots(3, 1, figsize=(10, BASE_HEIGHT * 3), sharex=True)
     axes[0].plot(res.trend, label="Trend")
     axes[0].set_title("Trend")
-    axes[0].legend(loc="upper left")
+    #axes[0].legend(loc="upper left")
 
     axes[1].plot(res.seasonal, label="Seasonal")
     axes[1].set_title("Seasonal")
-    axes[1].legend(loc="upper left")
+    #axes[1].legend(loc="upper left")
 
     axes[2].plot(res.resid, label="Residual (noise)")
     axes[2].set_title("Residual (noise)")
-    axes[2].legend(loc="upper left")
+    #axes[2].legend(loc="upper left")
 
     axes[2].set_xlabel("Time")
     fig.tight_layout()
