@@ -632,19 +632,23 @@ def render_models_page() -> None:
     st.session_state["prophet_yearly"] = prophet_yearly
     st.session_state["prophet_daily"]  = prophet_daily
 
-    # Early gate remains after toggles so they are visible on first visit
-    if not run_button and "baseline_results" not in st.session_state:
+    # Early gate: don't auto-run on first visit (key may exist but be None)
+    _has_results = isinstance(st.session_state.get("baseline_results"), dict) and len(st.session_state["baseline_results"]) > 0
+    if not run_button and not _has_results:
         st.stop()
 
     # --- Run baselines ---
-    window_changed = st.session_state.get("baseline_window") != window
+    prev_window = st.session_state.get("baseline_window", None)
+    window_changed = (prev_window is not None) and (prev_window != window)
+    just_ran = False
 
     # Only compute baselines when user clicks the button, first time, or window changed
-    if run_button or "baseline_results" not in st.session_state or window_changed:
+    if run_button or not _has_results or window_changed:
         try:
             results = run_baseline_suite(y_train=y_train, y_test=y_test, window=window)
             st.session_state["baseline_results"] = results
             st.session_state["baseline_window"] = window  # remember the window we used
+            just_ran = True 
         except Exception as e:
             st.warning(f"Baseline run failed: {e}")
             return  # avoid using undefined `results`
@@ -652,8 +656,6 @@ def render_models_page() -> None:
     # Use the cached results for tables/plots below
     results = st.session_state["baseline_results"]
 
-
-    # ARIMA (safe defaults)
     # ARIMA (safe defaults)
     if use_arima:
         try:
@@ -896,6 +898,7 @@ def render_models_page() -> None:
                         st.pyplot(fig_pacf)
                 except Exception as e:
                     st.warning(f"Residual ACF/PACF unavailable: {e}")
+    
     # --- Model cards (new) ---
     st.subheader("Model cards")
     models_dict = st.session_state.get("models", {}) or {}
@@ -1096,8 +1099,12 @@ def render_models_page() -> None:
         except Exception as e:
             st.warning(f"PNG export unavailable: {e}")
 
-
-    st.success("Baselines ready. You can move to **Compare** or enable ARIMA/Prophet later.")
+    # Show a truthful status only when results exist
+    if isinstance(results, dict) and len(results) > 0:
+        if just_ran:
+            st.success("Baselines computed. You can move to **Compare** or enable ARIMA/Prophet next.")
+        else:
+            st.success("Baselines loaded from cache. You can move to **Compare** or enable ARIMA/Prophet next.")
 
 # --- helper ---
 def build_compare_signature(
