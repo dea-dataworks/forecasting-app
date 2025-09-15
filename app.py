@@ -188,55 +188,62 @@ def render_data_page() -> None:
     st.session_state.df = df_idx
 
 
-    # --- C) Frequency report (read-only) ---
+    # # --- C) Frequency report (read-only) ---
+    # try:
+    #     freq_report = validate_frequency(df_idx.index)
+    # except Exception as e:
+    #     st.warning(f"Frequency inference issue: {e}")
+    #     freq_report = {"freq": None, "gaps": None, "expected_points": None, "gap_ratio": None, "is_monotonic": False}
+
+    # # Compute summary early so we can render it inside the "Sampling frequency & gaps" expander
+    # try:
+    #     summary = summarize_dataset(df_idx)
+    #     st.session_state.summary = summary
+    # except Exception as e:
+    #     summary = None
+    #     st.warning(f"Summary unavailable: {e}")
+
+    # with st.expander("Frequency & Missing Timestamps", expanded=True):
+    #     if summary:
+    #         left, right = st.columns(2)
+    #         left.write(
+    #             f"**Rows:** {summary['rows']:,}  "
+    #             f"\n**Columns:** {summary['cols']}  "
+    #             f"\n**Start:** {summary['start']}  "
+    #             f"\n**End:** {summary['end']}"
+    #         )
+    #         gap_txt = (
+    #                 f"{summary['gap_ratio']:.2%}" if isinstance(summary.get('gap_ratio'), (int, float))
+    #                 else (summary.get('gap_ratio') or '—')
+    #     )
+    #     right.write(
+    #         f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+    #         f"\n**Missing timestamps:** {summary['gaps']}  "
+    #         f"\n**Expected timestamps:** {summary['expected_points']}  "
+    #         f"\n**% missing timestamps:** {gap_txt}"
+    #     )
+
+    #     # Keep helpful nudges under the summary
+    #     if not freq_report.get("is_monotonic", False):
+    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+    #     if freq_report.get("freq") is None:
+    #         st.info("No clear frequency detected. You can regularize below to help models.")
+
+    # with st.expander("ⓘ Definitions", expanded=False):
+    #     st.markdown(
+    #         "- **Timestamp**: the date/time used as the index.\n"
+    #         "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
+    #         "- **Missing timestamps**: Dates absent from the index.\n"
+    #         "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
+    #         "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
+    #         )
+
+    # --- C) Frequency probe (read-only, for the nudge only) ---
     try:
         freq_report = validate_frequency(df_idx.index)
     except Exception as e:
         st.warning(f"Frequency inference issue: {e}")
         freq_report = {"freq": None, "gaps": None, "expected_points": None, "gap_ratio": None, "is_monotonic": False}
-
-    # Compute summary early so we can render it inside the "Sampling frequency & gaps" expander
-    try:
-        summary = summarize_dataset(df_idx)
-        st.session_state.summary = summary
-    except Exception as e:
-        summary = None
-        st.warning(f"Summary unavailable: {e}")
-
-    with st.expander("Sampling frequency & gaps", expanded=True):
-        if summary:
-            left, right = st.columns(2)
-            left.write(
-                f"**Rows:** {summary['rows']:,}  "
-                f"\n**Columns:** {summary['cols']}  "
-                f"\n**Start:** {summary['start']}  "
-                f"\n**End:** {summary['end']}"
-            )
-            gap_txt = (
-                    f"{summary['gap_ratio']:.2%}" if isinstance(summary.get('gap_ratio'), (int, float))
-                    else (summary.get('gap_ratio') or '—')
-        )
-        right.write(
-            f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-            f"\n**Missing timestamps:** {summary['gaps']}  "
-            f"\n**Expected timestamps:** {summary['expected_points']}  "
-            f"\n**% missing timestamps:** {gap_txt}"
-        )
-
-        # Keep helpful nudges under the summary
-        if not freq_report.get("is_monotonic", False):
-            st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-        if freq_report.get("freq") is None:
-            st.info("No clear frequency detected. You can regularize below to help models.")
-
-    with st.expander("ⓘ Definitions", expanded=False):
-        st.markdown(
-            "- **Timestamp**: the date/time used as the index.\n"
-            "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
-            "- **Missing timestamps**: Dates absent from the index.\n"
-            "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
-            "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
-            )
 
     # --- D) Optional regularization (second mutation) ---
     # Checkbox (default OFF). If there are gaps, nudge the user subtly.
@@ -258,15 +265,23 @@ def render_data_page() -> None:
         "Advanced…": "ADV",
     }
 
-    # Choose sensible default based on detected freq; fall back to Advanced…
+    # Prefer the last picked LABEL if present; else detected alias; else Advanced…
     _detected = (freq_report.get("freq") or "").upper()
-    _default_label = next((lbl for lbl, al in _freq_menu.items() if al == _detected), "Advanced…")
+    _saved_label = st.session_state.get("reg_freq_label")  # e.g., "Monthly (M)"
+    if _saved_label in _freq_menu:
+        _default_label = _saved_label
+    else:
+        _prev_alias = st.session_state.get("reg_freq_alias")
+        _alias_for_default = _prev_alias or _detected or "ADV"
+        _default_label = next((lbl for lbl, al in _freq_menu.items() if al == _alias_for_default), "Advanced…")
+
     freq_label = freq_fill_col1.selectbox(
         "Frequency",
         options=list(_freq_menu.keys()),
         index=list(_freq_menu.keys()).index(_default_label),
         disabled=not do_reg,
         help="Pick a common frequency. Use **Advanced…** for a custom pandas alias (e.g., MS, QS, 15T).",
+        key="reg_freq_label",
     )
 
     # If Advanced…, expose a tiny text input right below (still in the left column)
@@ -274,10 +289,14 @@ def render_data_page() -> None:
     if do_reg and _freq_menu[freq_label] == "ADV":
         custom_alias = freq_fill_col1.text_input(
             "Custom alias",
-            value=_detected if _detected not in _freq_menu.values() else "",
+            value=(st.session_state.get("reg_freq_alias")
+                if (st.session_state.get("reg_freq_alias") and st.session_state["reg_freq_alias"] not in _freq_menu.values())
+                else (_detected if _detected not in _freq_menu.values() else "")),
             placeholder="e.g., MS, QS, 15T",
             help="Pandas offset alias. Examples: MS (month-start), QS (quarter-start), 15T (15 minutes).",
+            key="reg_custom_alias",
         ).strip()
+
 
     # Fill method with friendly labels → internal values
     _fill_map = {
@@ -290,12 +309,13 @@ def render_data_page() -> None:
         options=list(_fill_map.keys()),
         index=0,
         disabled=not do_reg,
+        key="reg_fill_method",
     )
     fill = _fill_map[fill_label]
 
     # Apply regularization if requested
     if do_reg:
-        # Resolve final alias: menu pick or advanced text
+        # Resolve final alias from menu or advanced text
         chosen_alias = _freq_menu[freq_label]
         if chosen_alias == "ADV":
             if not custom_alias:
@@ -303,15 +323,88 @@ def render_data_page() -> None:
                 st.stop()
             chosen_alias = custom_alias
 
+        # Persist alias only; let widgets manage their own keys to avoid Streamlit conflicts
+        st.session_state["reg_freq_alias"] = chosen_alias
+        # NOTE: Do NOT assign to st.session_state["reg_freq_label"] or ["reg_custom_alias"]
+        # because those keys are owned by the selectbox/text_input widgets.
+
+
         try:
             df_idx = regularize_and_fill(df_idx, chosen_alias, fill=fill)
             st.session_state.df = df_idx
-            # Refresh the frequency report after regularization
+
+            # Refresh reports AFTER regularization
             freq_report = validate_frequency(df_idx.index)
+            summary = summarize_dataset(df_idx)
+            st.session_state.summary = summary
+
+            # Clear, visible confirmation line
+            st.success(
+                f"Applied: freq = **{chosen_alias}** ({to_human_freq(chosen_alias)}) • fill = **{fill}** "
+                f"→ missing timestamps now: **{summary.get('gaps', '—')}** "
+                f"({(summary.get('gap_ratio') or 0):.2%} of expected)."
+            )
+
+            # Tiny sanity preview: first/last 3 timestamps + deltas
+            with st.expander("Regularization preview", expanded=False):
+                try:
+                    idx = df_idx.index
+                    head = pd.DataFrame({"ts": idx[:3]})
+                    head["Δt"] = head["ts"].diff()
+                    tail = pd.DataFrame({"ts": idx[-3:]})
+                    tail["Δt"] = tail["ts"].diff()
+                    c1, c2 = st.columns(2)
+                    c1.caption("Head")
+                    c1.dataframe(head, hide_index=True, width="stretch")
+                    c2.caption("Tail")
+                    c2.dataframe(tail, hide_index=True, width="stretch")
+                except Exception:
+                    st.caption("Preview unavailable.")
         except Exception as e:
             st.error(f"Regularization failed: {e}")
             st.stop()
 
+    # --- Updated frequency & gaps summary (post-regularization) ---
+    try:
+        summary = st.session_state.get("summary") or summarize_dataset(df_idx)
+    except Exception as e:
+        summary = None
+        st.warning(f"Summary unavailable: {e}")
+
+    with st.expander("Frequency & Missing Timestamps", expanded=True):
+        if summary:
+            left, right = st.columns(2)
+            left.write(
+                f"**Rows:** {summary['rows']:,}  "
+                f"\n**Columns:** {summary['cols']}  "
+                f"\n**Start:** {summary['start']}  "
+                f"\n**End:** {summary['end']}"
+            )
+            gap_txt = (
+                f"{summary['gap_ratio']:.2%}" if isinstance(summary.get('gap_ratio'), (int, float))
+                else (summary.get('gap_ratio') or '—')
+            )
+            right.write(
+                f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
+                f"\n**Missing timestamps:** {summary['gaps']}  "
+                f"\n**Expected timestamps:** {summary['expected_points']}  "
+                f"\n**% of missing timestamps:** {gap_txt}"
+            )
+
+            # Nudges on the final (possibly-regularized) index
+            if not freq_report.get("is_monotonic", False):
+                st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
+            if freq_report.get("freq") is None:
+                st.info("No clear frequency detected. You can regularize above to help models.")
+
+    with st.expander("ⓘ Definitions", expanded=False):
+        st.markdown(
+            "- **Timestamp**: the date/time used as the index.\n"
+            "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
+            "- **Missing timestamps**: Dates absent from the index.\n"
+            "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
+            "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
+        )
 
     # --- E) Target selection ---
     # Promote & explain: this choice drives the rest of the app.
