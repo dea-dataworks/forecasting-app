@@ -3,6 +3,10 @@ import pandas as pd
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
+
+# --- for plots ---
+BASE_HEIGHT = 4
+
 def plot_raw_series(df):
     """
     Plot the raw time series.
@@ -31,7 +35,7 @@ def plot_raw_series(df):
     else:
         df_plot = df
 
-    fig, ax = plt.subplots(figsize=(10, 4))
+    fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
     ax.plot(df_plot.index, df_plot.iloc[:, 0], label=df.columns[0])
     ax.set_title("Raw Time Series")
     ax.set_xlabel("Time")
@@ -237,7 +241,7 @@ def plot_decomposition(df, period: int | None = None, model: str = "additive"):
         raise ValueError(f"Decomposition failed: {type(e).__name__}: {e}") from e
 
     # --- plot (3 stacked subplots) ---
-    fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10, BASE_HEIGHT * 3), sharex=True)
     axes[0].plot(res.trend, label="Trend")
     axes[0].set_title("Trend")
     axes[0].legend(loc="upper left")
@@ -283,27 +287,34 @@ def plot_acf_series(df: pd.DataFrame, max_lags: int | None = None):
     s = df.iloc[:, 0].dropna()
     n = len(s)
     if n < 3:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         ax.axis("off")
-        ax.text(0.5, 0.5, f"ACF unavailable: series too short ({n} points).", ha="center", va="center")
+        ax.text(
+            0.5, 0.5,
+            f"ACF unavailable: series too short ({n} points).",
+            ha="center", va="center"
+        )
         fig.tight_layout()
         return fig
 
     nlags = _auto_nlags(n) if max_lags is None else max(1, min(max_lags, n - 2))
     try:
-        fig, ax = plt.subplots(figsize=(10, 3.2))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         plot_acf(s, lags=nlags, ax=ax, zero=False)
         ax.set_title(f"ACF (nlags={nlags})")
         ax.set_xlabel("Lag")
         fig.tight_layout()
         return fig
     except Exception as e:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         ax.axis("off")
-        ax.text(0.5, 0.5, f"ACF unavailable: {type(e).__name__}: {e}", ha="center", va="center")
+        ax.text(
+            0.5, 0.5,
+            f"ACF unavailable: {type(e).__name__}: {e}",
+            ha="center", va="center"
+        )
         fig.tight_layout()
         return fig
-
 
 def plot_pacf_series(df: pd.DataFrame, max_lags: int | None = None):
     """
@@ -321,15 +332,19 @@ def plot_pacf_series(df: pd.DataFrame, max_lags: int | None = None):
     s = df.iloc[:, 0].dropna()
     n = len(s)
     if n < 3:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         ax.axis("off")
-        ax.text(0.5, 0.5, f"PACF unavailable: series too short ({n} points).", ha="center", va="center")
+        ax.text(
+            0.5, 0.5,
+            f"PACF unavailable: series too short ({n} points).",
+            ha="center", va="center"
+        )
         fig.tight_layout()
         return fig
 
     nlags = _auto_nlags(n) if max_lags is None else max(1, min(max_lags, n - 2))
     try:
-        fig, ax = plt.subplots(figsize=(10, 3.2))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         # yule-walker MLE is generally stable for short samples
         plot_pacf(s, lags=nlags, ax=ax, method="ywmle", zero=False)
         ax.set_title(f"PACF (nlags={nlags})")
@@ -337,8 +352,12 @@ def plot_pacf_series(df: pd.DataFrame, max_lags: int | None = None):
         fig.tight_layout()
         return fig
     except Exception as e:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = plt.subplots(figsize=(10, BASE_HEIGHT))
         ax.axis("off")
-        ax.text(0.5, 0.5, f"PACF unavailable: {type(e).__name__}: {e}", ha="center", va="center")
+        ax.text(
+            0.5, 0.5,
+            f"PACF unavailable: {type(e).__name__}: {e}",
+            ha="center", va="center"
+        )
         fig.tight_layout()
         return fig

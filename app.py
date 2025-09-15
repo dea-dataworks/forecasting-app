@@ -554,10 +554,12 @@ def render_eda_page() -> None:
 
     # --- 4) Decomposition ---
     show_decomp = st.toggle("Show decomposition", value=False,
-                            help="Compute and display decomposition (slower).")
+                            help="Compute and display decomposition.")
     if show_decomp:
         with st.expander("Decomposition", expanded=True):
-            st.caption("Trend shows long-term direction. Seasonal captures repeated patterns; residual is leftover noise.")
+            st.caption(" - Trend: the long-term direction of the series.\n"
+                       " - Seasonal: repeating patterns at the chosen period.\n"
+                        " - Residual: leftover noise after removing trend and seasonality.  ")
             period_choice = st.selectbox(
                 "Seasonal period",
                 options=["auto", 7, 12, 24, 52],
@@ -573,18 +575,17 @@ def render_eda_page() -> None:
 
     # --- 5) Autocorrelation diagnostics (ACF / PACF) ---
     show_corr = st.toggle("Show ACF/PACF", value=False,
-                        help="Compute and display autocorrelations (slower).")
+                        help="Compute and display autocorrelations.")
     if show_corr:
         with st.expander("Autocorrelation (ACF) & Partial (PACF)", expanded=True):
-            st.caption("ACF highlights repeating patterns across lags; PACF shows direct effects at each lag. We auto-clip nlags (≤30 or 10% of length).")
+            st.caption("- ACF: shows how the series relates to itself at different lags (repeating patterns).\n"
+                       "- PACF: shows the direct effect of each lag after accounting for earlier ones.")
             try:
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig_acf = plot_acf_series(y_df)
-                    st.pyplot(fig_acf, use_container_width=True)
-                with col2:
-                    fig_pacf = plot_pacf_series(y_df)
-                    st.pyplot(fig_pacf, use_container_width=True)
+                fig_acf = plot_acf_series(y_df)
+                st.pyplot(fig_acf, use_container_width=True)
+
+                fig_pacf = plot_pacf_series(y_df)
+                st.pyplot(fig_pacf, use_container_width=True)
             except Exception as e:
                 st.warning(f"ACF/PACF unavailable: {e}")
 
