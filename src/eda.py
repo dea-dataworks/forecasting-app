@@ -41,19 +41,18 @@ def plot_raw_series(df):
 
     return fig
 
-
 def plot_rolling(df, window: int = 7, show_var: bool = False):
     """
-    Plot raw series with rolling mean (and optional rolling variance).
+    Plot raw series with a centered rolling mean and (optionally) a standard-deviation band (±1σ).
 
     Parameters
     ----------
     df : pd.DataFrame
         DataFrame with a DatetimeIndex and exactly one numeric column.
     window : int, default=7
-        Rolling window size (in samples; assumes regular spacing from Phase 1).
+        Rolling window size (in samples; assumes regular spacing).
     show_var : bool, default=False
-        If True, add rolling variance on a secondary y-axis.
+        If True, shade ±1 standard deviation around the rolling mean (same axis).
 
     Returns
     -------
@@ -69,13 +68,16 @@ def plot_rolling(df, window: int = 7, show_var: bool = False):
     if len(df) < window:
         raise ValueError(f"Series length ({len(df)}) is smaller than window ({window}).")
 
-    # --- compute rolling stats (on full data) ---
     col = df.columns[0]
-    roll_mean = df[col].rolling(window=window, min_periods=window).mean()
-    if show_var:
-        roll_var = df[col].rolling(window=window, min_periods=window).var(ddof=0)
 
-    # --- downsample for plotting if needed ---
+    # --- centered rolling stats on full data ---
+    roll_mean = df[col].rolling(window=window, min_periods=window, center=True).mean()
+    roll_std = (
+        df[col].rolling(window=window, min_periods=window, center=True).std(ddof=0)
+        if show_var else None
+    )
+
+    # --- downsample helper for plotting ---
     max_points = 5000
     def downsample(s):
         if len(s) <= max_points:
@@ -83,31 +85,28 @@ def plot_rolling(df, window: int = 7, show_var: bool = False):
         step = len(s) // max_points
         return s.iloc[::step]
 
-    raw_plot = downsample(df[col])
+    raw_plot  = downsample(df[col])
     mean_plot = downsample(roll_mean)
-    if show_var:
-        var_plot = downsample(roll_var)
 
     # --- plot ---
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(raw_plot.index, raw_plot.values, label=col, alpha=0.6)
     ax.plot(mean_plot.index, mean_plot.values, label=f"Rolling mean (w={window})", linewidth=2)
 
+    if show_var and roll_std is not None:
+        std_plot = downsample(roll_std)
+        # align to mean index before building the band
+        m_aligned = mean_plot.reindex(std_plot.index)
+        upper = m_aligned + std_plot
+        lower = m_aligned - std_plot
+        ax.fill_between(std_plot.index, lower, upper, alpha=0.2, label="±1σ band")
+
     ax.set_title("Rolling View")
     ax.set_xlabel("Time")
     ax.set_ylabel("Value")
     ax.legend(loc="upper left")
-
-    if show_var:
-        ax2 = ax.twinx()
-        ax2.plot(var_plot.index, var_plot.values, label="Rolling variance", linestyle="--", alpha=0.7)
-        ax2.set_ylabel("Variance")
-        # Build a combined legend
-        lines, labels = ax.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(lines + lines2, labels + labels2, loc="upper left")
-
     fig.tight_layout()
+
     return fig
 
 def basic_stats(df):

@@ -531,7 +531,9 @@ def render_eda_page() -> None:
     else:
         c1, c2 = st.columns([2, 1])
         window = c1.slider("Rolling window (points)", min_value=3, max_value=90, value=7, step=1)
-        show_var = c2.checkbox("Variance bands", value=False, help="Show local variability around the rolling mean.")
+        # AFTER
+        show_var = c2.checkbox("Std. dev. band (±1σ)", value=False,
+                       help="Shades ±1 standard deviation around the rolling mean.")
         st.caption("Rolling mean smooths short-term noise; bands (optional) hint at local variability.")
         try:
             fig = plot_rolling(y_df, window=window, show_var=show_var)
@@ -551,35 +553,40 @@ def render_eda_page() -> None:
         st.warning(f"Could not compute basic stats: {e}")
 
     # --- 4) Decomposition ---
-    with st.expander("Decomposition", expanded=False):
-        st.caption("Trend shows long-term direction. Seasonal captures repeated patterns; residual is leftover noise.")
-        period_choice = st.selectbox(
-            "Seasonal period",
-            options=["auto", 7, 12, 24, 52],
-            index=0,
-            help="Auto = guess from frequency. Common choices: 7 (weekly seasonality for daily data), 12 (monthly seasonality), 24 (hourly seasonality), 52 (weekly seasonality for weekly data)."
-        )
-        period_arg = None if period_choice == "auto" else int(period_choice)
-
-        try:
-            fig_dec = plot_decomposition(y_df, period=period_arg)
-            st.pyplot(fig_dec)
-        except Exception as e:
-            st.warning(f"Decomposition unavailable: {e}")
+    show_decomp = st.toggle("Show decomposition", value=False,
+                            help="Compute and display decomposition (slower).")
+    if show_decomp:
+        with st.expander("Decomposition", expanded=True):
+            st.caption("Trend shows long-term direction. Seasonal captures repeated patterns; residual is leftover noise.")
+            period_choice = st.selectbox(
+                "Seasonal period",
+                options=["auto", 7, 12, 24, 52],
+                index=0,
+                help="Auto = guess from frequency. Common choices: 7 (weekly for daily), 12 (monthly), 24 (hourly), 52 (weekly data)."
+            )
+            period_arg = None if period_choice == "auto" else int(period_choice)
+            try:
+                fig_dec = plot_decomposition(y_df, period=period_arg)
+                st.pyplot(fig_dec, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Decomposition unavailable: {e}")
 
     # --- 5) Autocorrelation diagnostics (ACF / PACF) ---
-    with st.expander("Autocorrelation (ACF) & Partial (PACF)", expanded=False):
-        st.caption("ACF highlights repeating patterns across lags; PACF shows direct effects at each lag. We auto-clip nlags to keep it readable (≤30 or 10% of length).")
-        try:
-            col1, col2 = st.columns(2)
-            with col1:
-                fig_acf = plot_acf_series(y_df)
-                st.pyplot(fig_acf)
-            with col2:
-                fig_pacf = plot_pacf_series(y_df)
-                st.pyplot(fig_pacf)
-        except Exception as e:
-            st.warning(f"ACF/PACF unavailable: {e}")
+    show_corr = st.toggle("Show ACF/PACF", value=False,
+                        help="Compute and display autocorrelations (slower).")
+    if show_corr:
+        with st.expander("Autocorrelation (ACF) & Partial (PACF)", expanded=True):
+            st.caption("ACF highlights repeating patterns across lags; PACF shows direct effects at each lag. We auto-clip nlags (≤30 or 10% of length).")
+            try:
+                col1, col2 = st.columns(2)
+                with col1:
+                    fig_acf = plot_acf_series(y_df)
+                    st.pyplot(fig_acf, use_container_width=True)
+                with col2:
+                    fig_pacf = plot_pacf_series(y_df)
+                    st.pyplot(fig_pacf, use_container_width=True)
+            except Exception as e:
+                st.warning(f"ACF/PACF unavailable: {e}")
 
 # --- MODELS Page ---
 def render_models_page() -> None:
