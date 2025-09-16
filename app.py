@@ -1601,6 +1601,73 @@ def render_compare_page() -> None:
         metrics_display = merged.round({"RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4, "fit_s": 2, "forecast_ms/step": 2})
         st.dataframe(metrics_display, width="stretch")
 
+        # --- Stability indicator: how ranks change as H grows ---
+        with st.expander("Stability across horizons", expanded=False):
+            st.caption("Shows how each model’s **rank** changes as the comparison horizon grows. 1 = best.")
+            # Light by default: three sub-horizons; "All" can be heavier on large H.
+            granularity = st.radio(
+                "Granularity",
+                options=["3 points", "All"],
+                index=0,
+                horizontal=True,
+                help="‘3 points’ = {¼H, ½H, H}. ‘All’ = every step from 1…H.",
+            )
+
+            # Build the set of sub-horizons we’ll check
+            if granularity == "3 points":
+                h1 = max(1, H_eff // 4)
+                h2 = max(2, H_eff // 2)
+                hs = sorted({h1, h2, H_eff})
+            else:
+                hs = list(range(1, H_eff + 1))
+
+            # Use the current leaderboard metric & toggles for consistency
+            metric_name = sort_by
+
+            # Compute rank table: rows=models, columns=sub-horizons, values=rank (1 best)
+            try:
+                ranks_dict = {}
+                for h_i in hs:
+                    y_true_i = y_test.iloc[:h_i]
+                    f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+                    mdf_i = compute_metrics_table(
+                        y_true=y_true_i,
+                        forecasts=f_i,
+                        include_smape=use_smape,
+                        include_mase=use_mase,
+                        y_train_for_mase=(y_train if use_mase else None),
+                        sort_by=metric_name,
+                        ascending=True,
+                    )
+                    # Rank by the chosen metric (lower is better)
+                    mdf_i["rank"] = mdf_i[metric_name].rank(method="min", ascending=True).astype(int)
+                    ranks_dict[h_i] = mdf_i["rank"]
+
+                rank_df = pd.DataFrame(ranks_dict)
+                st.dataframe(rank_df, width="stretch")
+
+                # Tiny line plot for the top-3 models (by final horizon rank)
+                try:
+                    final_r = rank_df.get(H_eff)
+                    if final_r is not None and len(final_r) > 0:
+                        top_models = final_r.nsmallest(min(3, len(final_r))).index.tolist()
+                        fig_stab, ax = plt.subplots(figsize=(10, 3))
+                        xs = list(rank_df.columns)
+                        for m in top_models:
+                            ax.plot(xs, rank_df.loc[m].values, marker="o", linewidth=1, label=m)
+                        ax.invert_yaxis()  # rank 1 at the top
+                        ax.set_xlabel("H")
+                        ax.set_ylabel("Rank (lower = better)")
+                        ax.set_title(f"Rank stability by {metric_name}")
+                        ax.legend(loc="upper right", fontsize=8)
+                        fig_stab.tight_layout()
+                        st.pyplot(fig_stab)
+                except Exception as e:
+                    st.info(f"Stability plot unavailable: {e}")
+            except Exception as e:
+                st.info(f"Stability table unavailable: {e}")
+
+
 
 
     # Status line: show when we’re fully in-sync with cache
