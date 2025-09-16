@@ -1628,10 +1628,92 @@ def render_compare_page() -> None:
                     mask = merged["Model"].astype(str).isin(selected_models)
                     merged_view = merged.loc[mask]
 
-        metrics_display = merged_view.round({"RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4, "fit_s": 2, "forecast_ms/step": 2})
-        st.dataframe(metrics_display, width="stretch")
+        # --- Badges (compact cues): ⚡ faster • +X% vs base • 📈 stable rank ---
+        try:
+            view = merged_view.copy()
 
+            # 1) Speed badge (top-quartile forecast latency per step)
+            q25 = None
+            if "forecast_ms/step" in view.columns:
+                s = view["forecast_ms/step"].dropna()
+                q25 = s.quantile(0.25) if len(s) else None
 
+            # 2) Pick a baseline delta column to show as a short badge
+            delta_priority = [
+                "Δ RMSE vs Seasonal Naive (%)",
+                "Δ RMSE vs Naive (%)",
+                "Δ RMSE vs Drift (%)",
+                "Δ RMSE vs Mean (%)",
+            ]
+            delta_cols = [c for c in view.columns if c.startswith("Δ ") and "vs" in c]
+            def _best_delta(row):
+                for c in delta_priority:
+                    if c in view.columns and pd.notna(row.get(c)):
+                        return float(row[c])
+                if delta_cols:
+                    v = row.get(delta_cols[0])
+                    return float(v) if pd.notna(v) else None
+                return None
+
+            # 3) Stability badge: rank variance across {¼H, ½H, H}
+            h1 = max(1, H_eff // 4)
+            h2 = max(2, H_eff // 2)
+            hs = sorted({h1, h2, H_eff})
+            ranks = {}
+            for h_i in hs:
+                y_true_i = y_test.iloc[:h_i]
+                f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+                mdf_i = compute_metrics_table(
+                    y_true=y_true_i,
+                    forecasts=f_i,
+                    include_smape=use_smape,
+                    include_mase=use_mase,
+                    y_train_for_mase=(y_train if use_mase else None),
+                    sort_by=sort_by,
+                    ascending=True,
+                )
+                mdf_i["rank"] = mdf_i[sort_by].rank(method="min", ascending=True).astype(int)
+                ranks[h_i] = mdf_i["rank"]
+            rank_df = pd.DataFrame(ranks)
+            rank_std = rank_df.std(axis=1) if not rank_df.empty else pd.Series(dtype=float)
+
+            def _badges_for(name, row):
+                b = []
+                # ⚡ faster
+                if (q25 is not None) and pd.notna(row.get("forecast_ms/step")) and (row["forecast_ms/step"] <= q25):
+                    b.append("⚡ faster")
+                # +X% vs base
+                d = _best_delta(row)
+                if d is not None:
+                    sign = "+" if d >= 0 else ""
+                    b.append(f"{sign}{d:.0f}% vs base")
+                # 📈 stable rank (low variance across horizons)
+                try:
+                    if name in rank_std.index and pd.notna(rank_std.loc[name]) and rank_std.loc[name] <= 0.5:
+                        b.append("📈 stable rank")
+                except Exception:
+                    pass
+                return " · ".join(b)
+
+            view["Badges"] = [
+                _badges_for(str(idx) if _by_index else str(view.loc[idx, "Model"]), view.loc[idx])
+                for idx in view.index
+            ]
+
+            metrics_display = view.round({
+                "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
+                "fit_s": 2, "forecast_ms/step": 2
+            })
+            st.caption("Badges: ⚡ faster = top-quartile forecast speed • 📈 stable rank = low rank variance across horizons.")
+            st.dataframe(metrics_display, width="stretch")
+        except Exception as e:
+            metrics_display = merged_view.round({
+                "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
+                "fit_s": 2, "forecast_ms/step": 2
+            })
+            st.dataframe(metrics_display, width="stretch")
+            st.info(f"Badges unavailable: {e}")
+            
         # --- Stability indicator: how ranks change as H grows ---
         with st.expander("Stability across horizons", expanded=False):
             st.caption("Shows how each model’s **rank** changes as the comparison horizon grows. 1 = best.")
@@ -1859,6 +1941,68 @@ def render_compare_page() -> None:
                 col_png.info("Run comparison to enable plot export.")
         except Exception as e:
             col_png.warning(f"PNG export unavailable: {e}")
+
+    # --- Clean export: metrics_by_h.csv (long format) ---
+    with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
+        gran = st.radio(
+            "Granularity",
+            options=["3 points", "All (1…H)"],
+            index=0,
+            horizontal=True,
+            help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
+        )
+
+        if gran.startswith("3"):
+            h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
+        else:
+            h_set = list(range(1, H_eff + 1))
+
+        rows = []
+        for h_i in h_set:
+            try:
+                y_true_i = y_test.iloc[:h_i]
+                f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+                mdf_i = compute_metrics_table(
+                    y_true=y_true_i,
+                    forecasts=f_i,
+                    include_smape=use_smape,
+                    include_mase=use_mase,
+                    y_train_for_mase=(y_train if use_mase else None),
+                    sort_by=sort_by,
+                    ascending=True,
+                )
+                # Keep only metric columns that actually exist
+                keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
+                tmp = mdf_i[keep_metrics].copy()
+                tmp["model"] = tmp.index.astype(str)
+                tmp["H"] = int(h_i)
+                long_i = tmp.reset_index(drop=True).melt(
+                    id_vars=["model", "H"],
+                    var_name="metric",
+                    value_name="value",
+                )
+                rows.append(long_i)
+            except Exception as _:
+                continue
+
+        if rows:
+            metrics_long = pd.concat(rows, ignore_index=True)
+        else:
+            metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
+
+        try:
+            csv_bytes = dataframe_to_csv_bytes(metrics_long)
+            fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
+            st.download_button(
+                "Download CSV (metrics_by_h)",
+                data=csv_bytes,
+                file_name=fn["csv"],
+                mime="text/csv",
+                use_container_width=True,
+            )
+            st.caption("Format: columns = model, H, metric, value.")
+        except Exception as e:
+            st.warning(f"Metrics export unavailable: {e}")
 
 
     # Context-aware success note: acknowledge if classical models were auto-included
