@@ -1697,9 +1697,16 @@ def render_compare_page() -> None:
                     st.info(f"Stability plot unavailable: {e}")
             except Exception as e:
                 st.info(f"Stability table unavailable: {e}")
-
-
-
+            
+            # --- Decision note (saved in session; included in exports) ---
+            with st.expander("Decision note", expanded=False):
+                st.caption("Optional. Write why you picked a model or any caveats; this will be embedded in CSV exports.")
+                st.text_area(
+                    "Note",
+                    key="compare_decision_note",
+                    height=100,
+                    placeholder="e.g., Chose Prophet @ H=24: lowest RMSE, stable rank; ARIMA overfit on last month.",
+                )
 
     # Status line: show when we’re fully in-sync with cache
     if st.session_state.get("compare_signature") == current_sig:
@@ -1749,9 +1756,14 @@ def render_compare_page() -> None:
                 forecasts=forecasts,
                 index=idx,
                 level=ci_pct,
-                # lower=lower_dict,  # optional (future)
-                # upper=upper_dict,  # optional (future)
             )
+
+            # Attach decision note (if any)
+            _note = (st.session_state.get("compare_decision_note") or "").strip()
+            if _note:
+                combined_df["decision_note"] = _note
+                combined_df["decision_horizon"] = H_eff
+
 
             # Cache combined CSV bytes by participating models + horizon + level
             names = tuple(sorted(forecasts.keys()))
@@ -1803,6 +1815,13 @@ def render_compare_page() -> None:
             # Mirror Models page: include model + level columns
             fc_df["model"] = chosen
             fc_df["level"] = ci_pct
+
+            # Attach decision note (if any)
+            _note = (st.session_state.get("compare_decision_note") or "").strip()
+            if _note:
+                fc_df["decision_note"] = _note
+                fc_df["decision_horizon"] = H_eff
+
 
             csv_bytes = dataframe_to_csv_bytes(fc_df)
             fn = make_default_filenames(base=f"{chosen}_compare_h{H_eff}_ci{ci_pct}")
