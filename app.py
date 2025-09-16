@@ -22,6 +22,8 @@ def setup_page() -> None:
         initial_sidebar_state="expanded",
     )
 
+BASE_HEIGHT = 4
+
 # --- 2) Session state init ----------------------------------------------------
 def init_state_keys() -> None:
     for k in ("df", "train", "test", "freq", "summary",
@@ -616,21 +618,103 @@ def render_models_page() -> None:
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
     
     # Confidence level (shared UI; for now used by ARIMA only)
-    ci_level = st.slider("Confidence level", min_value=0.50, max_value=0.99, value=0.95, step=0.01,
-                         help="For interval bands. 0.95 → alpha = 0.05")
+        # Confidence level (shared UI for ARIMA & Prophet)
+    ci_level = st.slider(
+        "Confidence level",
+        min_value=0.50,
+        max_value=0.99,
+        value=0.95,
+        step=0.01,
+        help="For interval bands (ARIMA & Prophet). 0.95 → alpha = 0.05",
+    )
     st.session_state["ci_level"] = ci_level
     alpha = 1.0 - ci_level
 
-    # Prophet seasonalities (UI passthrough)
+    # Prophet options — smart defaults based on detected frequency (first run only)
+    freq = st.session_state.get("freq")
+    n_train = len(y_train) if y_train is not None else 0
+
+    def _is_subdaily(f):
+        return isinstance(f, str) and (("T" in f.upper()) or ("H" in f.upper()) or (f.upper() in {"S", "L"}))
+    def _is_daily(f):
+        return isinstance(f, str) and f.upper() == "D"
+    def _is_weekly(f):
+        return isinstance(f, str) and f.upper().startswith("W")
+    def _is_monthly(f):
+        return isinstance(f, str) and f.upper() in {"M", "MS"}
+
+    if HAS_PROPHET and not st.session_state.get("prophet_defaults_applied", False):
+        # Rough span check from the train index (in days); fall back to 0 if anything goes wrong.
+        try:
+            span_days = (y_train.index[-1] - y_train.index[0]).days if n_train >= 2 else 0
+        except Exception:
+            span_days = 0
+
+        weekly_on = False
+        yearly_on = False
+        daily_on  = False
+
+        if _is_subdaily(freq):
+            weekly_on, daily_on, yearly_on = True, True, False
+        elif _is_daily(freq):
+            weekly_on = True
+            yearly_on = span_days >= 365
+            daily_on  = False
+        elif _is_weekly(freq):
+            weekly_on = False
+            yearly_on = span_days >= int(1.5 * 365)  # need a longer span when data is weekly
+            daily_on  = False
+        elif _is_monthly(freq):
+            weekly_on = False
+            yearly_on = span_days >= int(2.0 * 365)  # need ~2y to learn annual cycle from monthly data
+            daily_on  = False
+        else:
+            # Unknown/irregular: general, conservative defaults
+            weekly_on, yearly_on, daily_on = True, False, False
+
+        st.session_state["prophet_weekly"] = st.session_state.get("prophet_weekly", weekly_on)
+        st.session_state["prophet_yearly"] = st.session_state.get("prophet_yearly", yearly_on)
+        st.session_state["prophet_daily"]  = st.session_state.get("prophet_daily",  daily_on)
+        st.session_state["prophet_defaults_applied"] = True
+
+    # UI: make the grouping explicit
+    st.markdown("**Prophet options**")
     p1, p2, p3 = st.columns(3)
-    prophet_weekly = p1.checkbox("Prophet: Weekly", value=True, disabled=not HAS_PROPHET)
-    prophet_yearly = p2.checkbox("Prophet: Yearly", value=True, disabled=not HAS_PROPHET)
-    prophet_daily  = p3.checkbox("Prophet: Daily",  value=False, disabled=not HAS_PROPHET,
-                                 help="Daily seasonality is usually for sub-daily data.")
+    prophet_weekly = p1.checkbox(
+        "Prophet: Weekly",
+        value=st.session_state.get("prophet_weekly", True),
+        disabled=not HAS_PROPHET,
+        help="Enable weekly seasonal pattern (best with daily or sub-daily data).",
+    )
+    prophet_yearly = p2.checkbox(
+        "Prophet: Yearly",
+        value=st.session_state.get("prophet_yearly", True),
+        disabled=not HAS_PROPHET,
+        help="Enable yearly seasonal cycle (needs enough history to learn).",
+    )
+    prophet_daily  = p3.checkbox(
+        "Prophet: Daily",
+        value=st.session_state.get("prophet_daily", False),
+        disabled=not HAS_PROPHET,
+        help="Enable within-day pattern (use for hourly/sub-daily data).",
+    )
 
     st.session_state["prophet_weekly"] = prophet_weekly
     st.session_state["prophet_yearly"] = prophet_yearly
     st.session_state["prophet_daily"]  = prophet_daily
+
+    # Contextual nudge captions (non-intrusive)
+    if freq is None:
+        st.caption("Frequency not detected; using general defaults.")
+    else:
+        try:
+            span_days = (y_train.index[-1] - y_train.index[0]).days if n_train >= 2 else 0
+        except Exception:
+            span_days = 0
+        # If yearly is off but data granularity would normally support it, explain why.
+        if prophet_yearly is False and (_is_daily(freq) or _is_weekly(freq) or _is_monthly(freq)):
+            if span_days < 365:
+                st.caption("Yearly seasonality defaulted OFF (not enough history yet).")
 
     # Early gate: don't auto-run on first visit (key may exist but be None)
     _has_results = isinstance(st.session_state.get("baseline_results"), dict) and len(st.session_state["baseline_results"]) > 0
@@ -875,7 +959,7 @@ def render_models_page() -> None:
             else:
                 # Residual line
                 try:
-                    fig_r, ax_r = plt.subplots(figsize=(10, 3))
+                    fig_r, ax_r = plt.subplots(figsize=(10, BASE_HEIGHT))
                     ax_r.plot(resid.index, resid.values, linewidth=1)
                     ax_r.axhline(0, linestyle="--", linewidth=1)
                     ax_r.set_title(f"{choice} residuals")
@@ -886,16 +970,25 @@ def render_models_page() -> None:
                 except Exception as e:
                     st.warning(f"Residual plot unavailable: {e}")
 
+
                 # ACF / PACF on residuals (clip lags: ≤30 or 10% of length)
                 try:
                     nlags = min(30, max(1, len(resid) // 10))
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        fig_acf = plot_acf_series(resid.to_frame("resid"), max_lags=nlags)
-                        st.pyplot(fig_acf)
-                    with c2:
-                        fig_pacf = plot_pacf_series(resid.to_frame("resid"), max_lags=nlags)
-                        st.pyplot(fig_pacf)
+
+                    fig_acf = plot_acf_series(resid.to_frame("resid"), max_lags=nlags)
+                    try:
+                        fig_acf.set_size_inches(10, BASE_HEIGHT)
+                    except Exception:
+                        pass
+                    st.pyplot(fig_acf)
+
+                    fig_pacf = plot_pacf_series(resid.to_frame("resid"), max_lags=nlags)
+                    try:
+                        fig_pacf.set_size_inches(10, BASE_HEIGHT)
+                    except Exception:
+                        pass
+                    st.pyplot(fig_pacf)
+
                 except Exception as e:
                     st.warning(f"Residual ACF/PACF unavailable: {e}")
     
