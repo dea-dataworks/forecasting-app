@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
+from io import BytesIO
+import zipfile
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
 from src.eda import (plot_raw_series, plot_rolling, basic_stats, plot_decomposition,
                     plot_acf_series, plot_pacf_series, infer_season_length_from_freq)
@@ -12,6 +14,7 @@ from src.baselines import run_baseline_suite, format_baseline_report, train_test
 from src.compare import (validate_horizon, generate_forecasts, compute_metrics_table, plot_overlay, build_combined_forecast_table)
 from src.classical import (HAS_PMDARIMA, HAS_PROPHET,train_auto_arima, forecast_auto_arima,train_prophet, forecast_prophet,)
 from src.outputs import (build_forecast_table,dataframe_to_csv_bytes,figure_to_png_bytes,make_default_filenames,)
+
 
 # --- 1) Page setup ------------------------------------------------------------
 def setup_page() -> None:
@@ -617,6 +620,12 @@ def render_models_page() -> None:
     use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
 
+    # NEW — when both are selected and neither is trained yet, tell the user the run order
+    if use_arima and use_prophet:
+        models_dict = st.session_state.get("models", {}) or {}
+        if ("arima" not in models_dict) and ("prophet" not in models_dict):
+            st.caption("We’ll train **ARIMA → Prophet** (fast → slower).")
+
     # NEW — ARIMA seasonal period (m)
     if HAS_PMDARIMA:
         a1, a2 = st.columns([1, 1])
@@ -1121,16 +1130,10 @@ def render_models_page() -> None:
             st.info("Prophet not trained.")
 
     # --- Exports ---
-    st.subheader("Exports")
+    st.subheader("Download")
 
-    with st.expander("Download predictions as CSV", expanded=False):
-        # Row 1: selector
-        chosen = st.selectbox(
-            "Model",
-            options=[n for n, r in results.items() if isinstance(r, dict) and "y_pred" in r],
-            index=0,
-        )
-
+    # 1) Combined — all models stacked into one CSV + the same overlay PNG shown above
+    with st.expander("Predictions Combined (CSV) and Overlay (PNG)", expanded=False):
         # Helper: ensure timezone-naive index for CSVs
         def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
             try:
@@ -1141,46 +1144,10 @@ def render_models_page() -> None:
                 except Exception:
                     return idx
 
-        # Row 2: two buttons
-        col_sel, col_all = st.columns(2)
+        # Place buttons side-by-side
+        col_csv, col_png = st.columns(2)
 
-        # Per-model CSV
-        try:
-            r = results[chosen]
-            idx = _naive_index(y_test.index)
-            level = float(st.session_state.get("ci_level", 0.95))
-            H = len(y_test)
-            ci_pct = int(round(level * 100))
-
-            fc_df = build_forecast_table(
-                index=idx,
-                y_pred=r["y_pred"],
-                lower=r.get("lower"),
-                upper=r.get("upper"),
-            )
-            fc_df["model"] = chosen
-            fc_df["level"] = ci_pct
-
-            # Cache the CSV bytes to avoid recompute on post-download reruns
-            key = (chosen, H, ci_pct)
-            csv_bytes = _get_cached_bytes(
-                "models_csv_selected",
-                key,
-                lambda: dataframe_to_csv_bytes(fc_df),
-            )
-            fn = make_default_filenames(base=f"forecast_{chosen.lower()}_h{H}_ci{ci_pct}")
-            col_sel.download_button(
-                "Download CSV (selected model)",
-                data=csv_bytes,
-                file_name=fn["csv"],
-                mime="text/csv",
-                use_container_width=True,
-            )
-
-        except Exception as e:
-            col_sel.warning(f"CSV export unavailable: {e}")
-
-        # Combined CSV
+        # Left: Combined CSV (all models)
         try:
             level = float(st.session_state.get("ci_level", 0.95))
             ci_pct = int(round(level * 100))
@@ -1189,24 +1156,24 @@ def render_models_page() -> None:
 
             frames = []
             for name, r in results.items():
-                if "y_pred" in r:
-                    fc = build_forecast_table(index=idx, y_pred=r["y_pred"], lower=r.get("lower"), upper=r.get("upper"))
+                if isinstance(r, dict) and "y_pred" in r:
+                    fc = build_forecast_table(
+                        index=idx,
+                        y_pred=r["y_pred"],
+                        lower=r.get("lower"),
+                        upper=r.get("upper"),
+                    )
                     fc["model"] = name
                     fc["level"] = ci_pct
                     frames.append(fc)
 
             if frames:
                 combined = pd.concat(frames, axis=0)
-                # Cache combined bytes keyed by participating models, horizon, and level
-                names = tuple(sorted([name for name, r in results.items() if "y_pred" in r]))
+                names = tuple(sorted([n for n, r in results.items() if isinstance(r, dict) and "y_pred" in r]))
                 key = (names, H, ci_pct)
-                csv_bytes_all = _get_cached_bytes(
-                    "models_csv_combined",
-                    key,
-                    lambda: dataframe_to_csv_bytes(combined),
-                )
+                csv_bytes_all = _get_cached_bytes("models_csv_combined", key, lambda: dataframe_to_csv_bytes(combined))
                 fn_all = make_default_filenames(base=f"forecast_allmodels_h{H}_ci{ci_pct}")
-                col_all.download_button(
+                col_csv.download_button(
                     "Download CSV (combined)",
                     data=csv_bytes_all,
                     file_name=fn_all["csv"],
@@ -1214,25 +1181,175 @@ def render_models_page() -> None:
                     use_container_width=True,
                 )
             else:
-                col_all.info("No forecasts available to combine.")
+                col_csv.info("No forecasts available to combine.")
         except Exception as e:
-            col_all.warning(f"Combined CSV export unavailable: {e}")
+            col_csv.warning(f"Combined CSV export unavailable: {e}")
 
-    # Keep PNG export of the overlay below CSVs
-    with st.expander("Download overlay plot (PNG)", expanded=False):
+        # Right: Overlay PNG (the main plot with all models)
         try:
             if fig is not None:
-                # Key reflects what’s on the chart: participating models + CI source + density + visual window
                 names = tuple(sorted(forecasts.keys()))
                 key = ("models_overlay", names, ci_model, st.session_state.get("density", "expanded"), st.session_state.get("train_tail", 200))
                 png = _get_cached_bytes("png", key, lambda: figure_to_png_bytes(fig))
                 fn = make_default_filenames(base="models_overlay")
-                st.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
+                col_png.download_button(
+                    "Download PNG (overlay)",
+                    data=png,
+                    file_name=fn["png"],
+                    mime="image/png",
+                    use_container_width=True,
+                )
             else:
-                st.info("Run baselines to enable plot export.")
+                col_png.info("Run baselines to enable overlay export.")
         except Exception as e:
-            st.warning(f"PNG export unavailable: {e}")
+            col_png.warning(f"PNG export unavailable: {e}")
 
+    # 2) Per-model — selector with CSV + model’s residuals PNG (ARIMA/Prophet only)
+    with st.expander("Model’s prediction + Residuals (CSV & PNG)", expanded=False):
+        models_dict = st.session_state.get("models", {}) or {}
+        # Offer only models that have a trained object AND predictions in `results`
+        options = []
+        if "arima" in models_dict and "ARIMA" in results:
+            options.append("ARIMA")
+        if "prophet" in models_dict and "Prophet" in results:
+            options.append("Prophet")
+
+        if not options:
+            st.info("Train **ARIMA** or **Prophet** to export predictions and residuals here.")
+        else:
+            chosen = st.selectbox("Model", options=options, index=0)
+
+            col_csv, col_png = st.columns(2)
+
+            # Left: CSV for the selected model (aligned to full H on Models page)
+            try:
+                r = results[chosen]
+
+                def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
+                    try:
+                        return idx.tz_convert(None)
+                    except Exception:
+                        try:
+                            return idx.tz_localize(None)
+                        except Exception:
+                            return idx
+
+                idx = _naive_index(y_test.index)
+                level = float(st.session_state.get("ci_level", 0.95))
+                H = len(y_test)
+                ci_pct = int(round(level * 100))
+
+                fc_df = build_forecast_table(
+                    index=idx,
+                    y_pred=r["y_pred"],
+                    lower=r.get("lower"),
+                    upper=r.get("upper"),
+                )
+                fc_df["model"] = chosen
+                fc_df["level"] = ci_pct
+
+                key = (chosen, H, ci_pct)
+                csv_bytes = _get_cached_bytes(
+                    "models_csv_selected",
+                    key,
+                    lambda: dataframe_to_csv_bytes(fc_df),
+                )
+                fn = make_default_filenames(base=f"forecast_{chosen.lower()}_h{H}_ci{ci_pct}")
+                col_csv.download_button(
+                    "Download CSV (selected model)",
+                    data=csv_bytes,
+                    file_name=fn["csv"],
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            except Exception as e:
+                col_csv.warning(f"CSV export unavailable: {e}")
+
+            # Right: One button — ZIP with residuals line, ACF, PACF
+            try:
+                ytr = st.session_state.get("train")
+
+                # --- Build residuals (same logic as Residual diagnostics) ---
+                if chosen == "ARIMA":
+                    am = models_dict.get("arima")
+                    try:
+                        fitted_vals = pd.Series(am.predict_in_sample(), index=ytr.index)
+                    except Exception:
+                        fv = getattr(am, "fittedvalues", None)
+                        if fv is not None:
+                            fv = pd.Series(fv)
+                            if len(fv) == len(ytr):
+                                fitted_vals = fv.set_axis(ytr.index)
+                            else:
+                                fitted_vals = pd.Series(fv.values[-len(ytr):], index=ytr.index)
+                        else:
+                            fitted_vals = ytr.shift(1)
+                    resid = (ytr - fitted_vals).dropna()
+                else:  # Prophet
+                    pm = models_dict.get("prophet")
+                    try:
+                        ds_df = pd.DataFrame({"ds": ytr.index})
+                        fcst = pm.predict(ds_df)
+                        fitted_vals = pd.Series(fcst["yhat"].values, index=ytr.index)
+                        resid = (ytr - fitted_vals).dropna()
+                    except Exception:
+                        resid = pd.Series(dtype="float64")
+
+                if resid is None or len(resid) < 3:
+                    col_png.info("Residuals unavailable for this model.")
+                else:
+                    # --- 1) Residuals line figure ---
+                    fig_r, ax_r = plt.subplots(figsize=(10, BASE_HEIGHT))
+                    ax_r.plot(resid.index, resid.values, linewidth=1)
+                    ax_r.axhline(0, linestyle="--", linewidth=1)
+                    ax_r.set_title(f"{chosen} residuals")
+                    ax_r.set_xlabel("Time")
+                    ax_r.set_ylabel("Residual")
+                    fig_r.tight_layout()
+                    png_r = figure_to_png_bytes(fig_r)
+                    plt.close(fig_r)
+
+                    # --- 2) ACF figure ---
+                    nlags = min(30, max(1, len(resid) // 10))
+                    fig_acf = plot_acf_series(resid.to_frame("resid"), max_lags=nlags)
+                    try:
+                        fig_acf.set_size_inches(10, BASE_HEIGHT)
+                    except Exception:
+                        pass
+                    png_a = figure_to_png_bytes(fig_acf)
+                    plt.close(fig_acf)
+
+                    # --- 3) PACF figure ---
+                    fig_pacf = plot_pacf_series(resid.to_frame("resid"), max_lags=nlags)
+                    try:
+                        fig_pacf.set_size_inches(10, BASE_HEIGHT)
+                    except Exception:
+                        pass
+                    png_p = figure_to_png_bytes(fig_pacf)
+                    plt.close(fig_pacf)
+
+                    # --- Bundle all three into a ZIP in-memory ---
+                    zip_buf = BytesIO()
+                    with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                        zf.writestr(f"residuals_{chosen.lower()}_line.png", png_r)
+                        zf.writestr(f"residuals_{chosen.lower()}_acf.png", png_a)
+                        zf.writestr(f"residuals_{chosen.lower()}_pacf.png", png_p)
+                    zip_buf.seek(0)
+
+                    col_png.download_button(
+                        "Download ZIP (residuals: line + ACF + PACF)",
+                        data=zip_buf.getvalue(),
+                        file_name=f"residuals_{chosen.lower()}_bundle.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+            except Exception as e:
+                col_png.warning(f"Residuals export unavailable: {e}")
+
+
+            except Exception as e:
+                col_png.warning(f"Residuals PNG unavailable: {e}")
+    
     # Show a truthful status only when results exist
     if isinstance(results, dict) and len(results) > 0:
         if just_ran:
