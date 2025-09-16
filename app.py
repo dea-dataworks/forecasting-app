@@ -1511,7 +1511,7 @@ def render_compare_page() -> None:
     forecasts = cache["forecasts"]
     H_eff = cache["H"]
 
-    # Recompute metrics cheaply from cached forecasts (respect current toggles), using cached H
+        # Recompute metrics cheaply from cached forecasts (respect current toggles), using cached H
     try:
         y_true = y_test.iloc[:H_eff]
         metrics_df = compute_metrics_table(
@@ -1527,140 +1527,286 @@ def render_compare_page() -> None:
         st.warning(f"Metrics computation failed: {e}")
         metrics_df = pd.DataFrame()
 
-        st.subheader("Leaderboard")
-        st.caption(f"H = {H_eff} • freq = {to_human_freq(freq)}")
+    # Leaderboard header shown below once metrics section renders
+    # --  add relative-to-baseline improvement columns (%)
+    try:
+        # Prefer a seasonal naive if available; fall back to naive/drift/mean; else first row
+        pref = ["Seasonal Naive", "Naive", "Drift", "Mean"]
+        idx = list(metrics_df.index)
+        baseline_name = next((n for n in pref if n in idx), (idx[0] if len(idx) > 0 else None))
 
-        # -- New: add relative-to-baseline improvement columns (%)
+        if baseline_name is not None and not metrics_df.empty:
+            base_cols = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in metrics_df.columns]
+            for c in base_cols:
+                b = metrics_df.at[baseline_name, c]
+                if pd.notna(b) and b != 0:
+                    # Positive % = better (lower-is-better metrics inverted against baseline)
+                    metrics_df[f"Δ {c} vs {baseline_name} (%)"] = (b - metrics_df[c]) / b * 100.0
+    except Exception as e:
+        st.info(f"Baseline deltas skipped: {e}")
+
+    # --- Enrich leaderboard with timing columns (fit & forecast) ---
+    times = {}
+    model_times = st.session_state.get("model_times", {}) or {}
+    ci_level = float(st.session_state.get("ci_level", 0.95))
+    alpha = 1.0 - ci_level
+
+    for name in metrics_df.index.tolist():
+        rec = {}
+        # Fit time (if we captured it on the Models page)
+        rec["fit_s"] = float(model_times.get(name, {}).get("fit_s")) if isinstance(model_times.get(name, {}).get("fit_s"), (int, float)) else None
+
+        # Forecast timing (per-step), measured on the same horizon used in the table (H_eff)
         try:
-            # Prefer a seasonal naive if available; fall back to naive/drift/mean; else first row
-            pref = ["Seasonal Naive", "Naive", "Drift", "Mean"]
-            idx = list(metrics_df.index)
-            baseline_name = next((n for n in pref if n in idx), (idx[0] if len(idx) > 0 else None))
+            t0 = time.perf_counter()
+            if name in ("ARIMA", "Prophet"):
+                # Use trained objects for realistic timing
+                trained = st.session_state.get("models", {}) or {}
+                if name == "ARIMA" and "arima" in trained:
+                    _ = forecast_auto_arima(trained["arima"], test_index=y_test.index[:H_eff], alpha=alpha)[0]
+                elif name == "Prophet" and "prophet" in trained:
+                    _ = forecast_prophet(trained["prophet"], test_index=y_test.index[:H_eff])[0]
+                else:
+                    raise RuntimeError("Trained model not found")
+            else:
+                # Baselines are wrapped as callables in the Compare assembly; re-use that path if present
+                # Fall back to the actual forecast we already have (no-op timing) if needed.
+                _call = None
+                # Try to reconstruct the baseline callable from stored results
+                base_res = st.session_state.get("baseline_results", {}) or {}
+                if name in base_res and isinstance(base_res[name], dict) and "y_pred" in base_res[name]:
+                    series = base_res[name]["y_pred"]
+                    def _call(hh): return series.iloc[:hh]
+                # Time it if callable exists
+                if _call is not None:
+                    _ = _call(H_eff)
+                else:
+                    # As a safe fallback, touch the cached forecast slice to keep structure consistent
+                    _ = forecasts[name].iloc[:H_eff]
+            dt = (time.perf_counter() - t0)
+            # Normalize to ms/step; guard divide-by-zero
+            rec["forecast_ms/step"] = (dt * 1000.0 / max(1, H_eff))
+        except Exception:
+            rec["forecast_ms/step"] = None
 
-            if baseline_name is not None and not metrics_df.empty:
-                base_cols = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in metrics_df.columns]
-                for c in base_cols:
-                    b = metrics_df.at[baseline_name, c]
-                    if pd.notna(b) and b != 0:
-                        # Positive % = better (lower-is-better metrics inverted against baseline)
-                        metrics_df[f"Δ {c} vs {baseline_name} (%)"] = (b - metrics_df[c]) / b * 100.0
-                st.caption(f"Δ columns = % improvement vs **{baseline_name}** (higher = better).")
-        except Exception as e:
-            st.info(f"Baseline deltas skipped: {e}")
+        times[name] = rec
 
-        # --- Enrich leaderboard with timing columns (fit & forecast) ---
-        times = {}
-        model_times = st.session_state.get("model_times", {}) or {}
-        ci_level = float(st.session_state.get("ci_level", 0.95))
-        alpha = 1.0 - ci_level
+    # Build a timing frame aligned to metrics_df
+    timing_df = pd.DataFrame.from_dict(times, orient="index")
+    
+    # Merge and display
+    # Always show the Leaderboard header (even if metrics are empty)
+    st.subheader(f"Leaderboard (H={H_eff}) — pick a winner")
+    st.caption(f"freq = {to_human_freq(freq)} • sort by {sort_by}")
 
-        for name in metrics_df.index.tolist():
-            rec = {}
-            # Fit time (if we captured it on the Models page)
-            rec["fit_s"] = float(model_times.get(name, {}).get("fit_s")) if isinstance(model_times.get(name, {}).get("fit_s"), (int, float)) else None
+    # Merge raw metrics with timing
+    merged = metrics_df.join(timing_df, how="left")
 
-            # Forecast timing (per-step), measured on the same horizon used in the table (H_eff)
+    # -- Relative-to-baseline improvement columns (%) --
+    try:
+        pref = ["Seasonal Naive", "Naive", "Drift", "Mean"]
+        idx_names = list(merged.index)
+        baseline_name = next((n for n in pref if n in idx_names), (idx_names[0] if len(idx_names) > 0 else None))
+        if baseline_name is not None and not merged.empty:
+            base_cols = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in merged.columns]
+            for c in base_cols:
+                b = merged.at[baseline_name, c]
+                if pd.notna(b) and b != 0:
+                    merged[f"Δ {c} vs {baseline_name} (%)"] = (b - merged[c]) / b * 100.0
+            # Single, clean caption for Δ columns
+            st.caption(f"Δ columns = % improvement vs **{baseline_name}** (positive = better).")
+
+    except Exception as e:
+        st.info(f"Baseline deltas skipped: {e}")
+
+    # --- Roster filter (checkboxes) for leaderboard ---
+    with st.expander("Filter models on leaderboard", expanded=False):
+        if "Model" in merged.columns:
+            _labels = merged["Model"].astype(str).tolist()
+            _by_index = False
+        else:
+            _labels = merged.index.astype(str).tolist()
+            _by_index = True
+
+        ncols = min(4, max(1, len(_labels)))
+        cols = st.columns(ncols)
+        _flags = {}
+        for i, name in enumerate(_labels):
+            with cols[i % ncols]:
+                _flags[name] = st.checkbox(name, value=True, key=f"cmp_roster_{i}")
+
+        selected_models = [m for m, ok in _flags.items() if ok]
+        if not selected_models:
+            st.warning("Select at least one model to show.")
+            merged_view = merged.iloc[0:0].copy()
+        else:
+            if _by_index:
+                mask = merged.index.astype(str).isin(selected_models)
+                merged_view = merged.loc[mask]
+            else:
+                mask = merged["Model"].astype(str).isin(selected_models)
+                merged_view = merged.loc[mask]
+
+    # --- Badges & decorated model names ---
+    label_map: dict[str, str] = {}
+    try:
+        view = merged_view.copy()
+
+        # Speed badge threshold (top-quartile latency)
+        q25 = None
+        if "forecast_ms/step" in view.columns:
+            s = view["forecast_ms/step"].dropna()
+            q25 = s.quantile(0.25) if len(s) else None
+
+        # Pick best available Δ% column (prefer RMSE vs seasonal naive/naive)
+        delta_priority = [
+            "Δ RMSE vs Seasonal Naive (%)",
+            "Δ RMSE vs Naive (%)",
+            "Δ RMSE vs Drift (%)",
+            "Δ RMSE vs Mean (%)",
+        ]
+        delta_cols = [c for c in view.columns if c.startswith("Δ ") and "vs" in c]
+        def _best_delta(row):
+            for c in delta_priority:
+                if c in view.columns and pd.notna(row.get(c)):
+                    return float(row[c])
+            if delta_cols:
+                v = row.get(delta_cols[0])
+                return float(v) if pd.notna(v) else None
+            return None
+
+        # --- Build small stability table (¼H, ½H, H) so rank_df_small always exists
+        h1 = max(1, H_eff // 4)
+        h2 = max(2, H_eff // 2)
+        hs = sorted({h1, h2, H_eff})
+        ranks_small = {}
+        for h_i in hs:
+            y_true_i = y_test.iloc[:h_i]
+            f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+            mdf_i = compute_metrics_table(
+                y_true=y_true_i,
+                forecasts=f_i,
+                include_smape=use_smape,
+                include_mase=use_mase,
+                y_train_for_mase=(y_train if use_mase else None),
+                sort_by=sort_by,
+                ascending=True,
+            )
+            mdf_i["rank"] = mdf_i[sort_by].rank(method="min", ascending=True).astype(int)
+            ranks_small[h_i] = mdf_i["rank"]
+        rank_df_small = pd.DataFrame(ranks_small)
+        rank_std = rank_df_small.std(axis=1) if not rank_df_small.empty else pd.Series(dtype=float)
+
+        def _badge_text(name, row):
+            b = []
+            if (q25 is not None) and pd.notna(row.get("forecast_ms/step")) and (row["forecast_ms/step"] <= q25):
+                b.append("⚡")
+            d = _best_delta(row)
+            if d is not None:
+                sign = "+" if d >= 0 else ""
+                b.append(f"{sign}{d:.0f}%")
             try:
-                t0 = time.perf_counter()
-                if name in ("ARIMA", "Prophet"):
-                    # Use trained objects for realistic timing
-                    trained = st.session_state.get("models", {}) or {}
-                    if name == "ARIMA" and "arima" in trained:
-                        _ = forecast_auto_arima(trained["arima"], test_index=y_test.index[:H_eff], alpha=alpha)[0]
-                    elif name == "Prophet" and "prophet" in trained:
-                        _ = forecast_prophet(trained["prophet"], test_index=y_test.index[:H_eff])[0]
-                    else:
-                        raise RuntimeError("Trained model not found")
-                else:
-                    # Baselines are wrapped as callables in the Compare assembly; re-use that path if present
-                    # Fall back to the actual forecast we already have (no-op timing) if needed.
-                    _call = None
-                    # Try to reconstruct the baseline callable from stored results
-                    base_res = st.session_state.get("baseline_results", {}) or {}
-                    if name in base_res and isinstance(base_res[name], dict) and "y_pred" in base_res[name]:
-                        series = base_res[name]["y_pred"]
-                        def _call(hh): return series.iloc[:hh]
-                    # Time it if callable exists
-                    if _call is not None:
-                        _ = _call(H_eff)
-                    else:
-                        # As a safe fallback, touch the cached forecast slice to keep structure consistent
-                        _ = forecasts[name].iloc[:H_eff]
-                dt = (time.perf_counter() - t0)
-                # Normalize to ms/step; guard divide-by-zero
-                rec["forecast_ms/step"] = (dt * 1000.0 / max(1, H_eff))
+                if name in rank_std.index and pd.notna(rank_std.loc[name]) and rank_std.loc[name] <= 0.5:
+                    b.append("📈")
             except Exception:
-                rec["forecast_ms/step"] = None
+                pass
+            return " ".join(b)
 
-            times[name] = rec
+        # Decorate for display: bold model label (legend clarity), keep badges normal
+        if "Model" in view.columns:
+            names = view["Model"].astype(str).tolist()
+            _by_index = False
+        else:
+            names = view.index.astype(str).tolist()
+            _by_index = True
 
-        # Build a timing frame aligned to metrics_df
-        timing_df = pd.DataFrame.from_dict(times, orient="index")
-        
-        # Merge and display
-        merged = metrics_df.join(timing_df, how="left")
+        decorated = []
+        for nm in names:
+            row = view.loc[nm] if nm in view.index else view[view["Model"].astype(str) == nm].iloc[0]
+            tag = _badge_text(nm, row)
+            bold_nm = rf"$\bf{{{nm}}}$"
+            decorated.append(f"{bold_nm}  {tag}" if tag else bold_nm)
 
-        # --- Roster filter (checkboxes) for leaderboard ---
-        with st.expander("Filter models on leaderboard", expanded=False):
-            if "Model" in merged.columns:
-                _labels = merged["Model"].astype(str).tolist()
-                _by_index = False
-            else:
-                _labels = merged.index.astype(str).tolist()
-                _by_index = True
+        # Map raw model name -> decorated label (with badges)
+        label_map = dict(zip(names, decorated))
 
-            ncols = min(4, max(1, len(_labels)))
-            cols = st.columns(ncols)
-            _flags = {}
-            for i, name in enumerate(_labels):
-                with cols[i % ncols]:
-                    _flags[name] = st.checkbox(name, value=True, key=f"cmp_roster_{i}")
-
-            selected_models = [m for m, ok in _flags.items() if ok]
-            if not selected_models:
-                st.warning("Select at least one model to show.")
-                merged_view = merged.iloc[0:0].copy()
-            else:
-                if _by_index:
-                    mask = merged.index.astype(str).isin(selected_models)
-                    merged_view = merged.loc[mask]
-                else:
-                    mask = merged["Model"].astype(str).isin(selected_models)
-                    merged_view = merged.loc[mask]
-
-        # --- Badges (compact cues): ⚡ faster • +X% vs base • 📈 stable rank ---
+        # Build final display (winner marked with 🏆)
+        display = view.copy()
         try:
-            view = merged_view.copy()
+            winner_key = display[sort_by].idxmin()
+        except Exception:
+            winner_key = None
 
-            # 1) Speed badge (top-quartile forecast latency per step)
-            q25 = None
-            if "forecast_ms/step" in view.columns:
-                s = view["forecast_ms/step"].dropna()
-                q25 = s.quantile(0.25) if len(s) else None
+        decorated_final = []
+        for nm, lab in zip(names, decorated):
+            decorated_final.append(f"🏆 {lab}" if (winner_key is not None and nm == winner_key) else lab)
+        display.index = decorated_final
 
-            # 2) Pick a baseline delta column to show as a short badge
-            delta_priority = [
-                "Δ RMSE vs Seasonal Naive (%)",
-                "Δ RMSE vs Naive (%)",
-                "Δ RMSE vs Drift (%)",
-                "Δ RMSE vs Mean (%)",
-            ]
-            delta_cols = [c for c in view.columns if c.startswith("Δ ") and "vs" in c]
-            def _best_delta(row):
-                for c in delta_priority:
-                    if c in view.columns and pd.notna(row.get(c)):
-                        return float(row[c])
-                if delta_cols:
-                    v = row.get(delta_cols[0])
-                    return float(v) if pd.notna(v) else None
-                return None
+        # Append % sign inside Δ columns for readability
+        _delta_cols_disp = [c for c in display.columns if c.startswith("Δ ")]
+        if _delta_cols_disp:
+            display[_delta_cols_disp] = (
+                display[_delta_cols_disp]
+                .apply(pd.to_numeric, errors="coerce").round(0)
+                .applymap(lambda v: (f"{int(v)}%" if pd.notna(v) else None))
+            )
 
-            # 3) Stability badge: rank variance across {¼H, ½H, H}
-            h1 = max(1, H_eff // 4)
-            h2 = max(2, H_eff // 2)
-            hs = sorted({h1, h2, H_eff})
-            ranks = {}
-            for h_i in hs:
+        # Numeric rounding for metrics/times
+        metrics_display = display.round({
+            "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
+            "fit_s": 2, "forecast_ms/step": 2
+        })
+
+        # Put timing columns right after the (decorated) model index
+        all_cols = list(metrics_display.columns)
+        time_cols = [c for c in ["fit_s", "forecast_ms/step"] if c in all_cols]
+        delta_tail = [c for c in all_cols if c.startswith("Δ ")]
+        metric_cols = [c for c in all_cols if c not in time_cols + delta_tail]
+        ordered = time_cols + metric_cols + delta_tail
+        metrics_display = metrics_display[ordered] if ordered else metrics_display
+
+        st.caption("Badges: ⚡ faster (top-quartile speed) • +X% vs baseline • 📈 stable rank (low drift).")
+        st.dataframe(metrics_display, width="stretch")
+
+    except Exception as e:
+        metrics_display = merged_view.round({
+            "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
+            "fit_s": 2, "forecast_ms/step": 2
+        })
+        st.dataframe(metrics_display, width="stretch")
+        st.info(f"Badges unavailable: {e}")
+
+    # --- Micro-panel: Rank drift at ¼H, ½H, H ---
+    try:
+        if not rank_df_small.empty:
+            cols_sorted = sorted(list(rank_df_small.columns))
+            pretty_cols = {c: f"rank@{c}" for c in cols_sorted}
+            st.caption("Rank drift (lower = steadier):")
+            st.dataframe(rank_df_small[cols_sorted].rename(columns=pretty_cols), use_container_width=True, height=200)
+    except Exception as e:
+        st.info(f"Rank drift preview unavailable: {e}")
+
+    # --- Stability indicator: detailed view in an expander ---
+    with st.expander("Stability across horizons", expanded=False):
+        st.caption("Shows how each model’s **rank** changes as the comparison horizon grows. 1 = best.")
+        granularity = st.radio(
+            "Granularity",
+            options=["3 points", "All (1…H)"],
+            index=0,
+            horizontal=True,
+            key="stability_granularity",
+            help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
+        )
+        # Fallback if rank_df_small/cols_sorted isn’t available
+        default_3pts = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
+        cols_sorted = (sorted(list(rank_df_small.columns))
+                       if ("rank_df_small" in locals() and not rank_df_small.empty)
+                       else default_3pts)
+        hs2 = cols_sorted if granularity.startswith("3") else list(range(1, H_eff + 1))
+
+        try:
+            ranks_dict = {}
+            for h_i in hs2:
                 y_true_i = y_test.iloc[:h_i]
                 f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
                 mdf_i = compute_metrics_table(
@@ -1673,126 +1819,40 @@ def render_compare_page() -> None:
                     ascending=True,
                 )
                 mdf_i["rank"] = mdf_i[sort_by].rank(method="min", ascending=True).astype(int)
-                ranks[h_i] = mdf_i["rank"]
-            rank_df = pd.DataFrame(ranks)
-            rank_std = rank_df.std(axis=1) if not rank_df.empty else pd.Series(dtype=float)
+                ranks_dict[h_i] = mdf_i["rank"]
 
-            def _badges_for(name, row):
-                b = []
-                # ⚡ faster
-                if (q25 is not None) and pd.notna(row.get("forecast_ms/step")) and (row["forecast_ms/step"] <= q25):
-                    b.append("⚡ faster")
-                # +X% vs base
-                d = _best_delta(row)
-                if d is not None:
-                    sign = "+" if d >= 0 else ""
-                    b.append(f"{sign}{d:.0f}% vs base")
-                # 📈 stable rank (low variance across horizons)
-                try:
-                    if name in rank_std.index and pd.notna(rank_std.loc[name]) and rank_std.loc[name] <= 0.5:
-                        b.append("📈 stable rank")
-                except Exception:
-                    pass
-                return " · ".join(b)
+            rank_df = pd.DataFrame(ranks_dict)
+            st.dataframe(rank_df, width="stretch")
 
-            view["Badges"] = [
-                _badges_for(str(idx) if _by_index else str(view.loc[idx, "Model"]), view.loc[idx])
-                for idx in view.index
-            ]
-
-            metrics_display = view.round({
-                "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
-                "fit_s": 2, "forecast_ms/step": 2
-            })
-            st.caption("Badges: ⚡ faster = top-quartile forecast speed • 📈 stable rank = low rank variance across horizons.")
-            st.dataframe(metrics_display, width="stretch")
-        except Exception as e:
-            metrics_display = merged_view.round({
-                "RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4,
-                "fit_s": 2, "forecast_ms/step": 2
-            })
-            st.dataframe(metrics_display, width="stretch")
-            st.info(f"Badges unavailable: {e}")
-            
-        # --- Stability indicator: how ranks change as H grows ---
-        with st.expander("Stability across horizons", expanded=False):
-            st.caption("Shows how each model’s **rank** changes as the comparison horizon grows. 1 = best.")
-            # Light by default: three sub-horizons; "All" can be heavier on large H.
-            granularity = st.radio(
-                "Granularity",
-                options=["3 points", "All"],
-                index=0,
-                horizontal=True,
-                help="‘3 points’ = {¼H, ½H, H}. ‘All’ = every step from 1…H.",
-            )
-
-            # Build the set of sub-horizons we’ll check
-            if granularity == "3 points":
-                h1 = max(1, H_eff // 4)
-                h2 = max(2, H_eff // 2)
-                hs = sorted({h1, h2, H_eff})
-            else:
-                hs = list(range(1, H_eff + 1))
-
-            # Use the current leaderboard metric & toggles for consistency
-            metric_name = sort_by
-
-            # Compute rank table: rows=models, columns=sub-horizons, values=rank (1 best)
             try:
-                ranks_dict = {}
-                for h_i in hs:
-                    y_true_i = y_test.iloc[:h_i]
-                    f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
-                    mdf_i = compute_metrics_table(
-                        y_true=y_true_i,
-                        forecasts=f_i,
-                        include_smape=use_smape,
-                        include_mase=use_mase,
-                        y_train_for_mase=(y_train if use_mase else None),
-                        sort_by=metric_name,
-                        ascending=True,
-                    )
-                    # Rank by the chosen metric (lower is better)
-                    mdf_i["rank"] = mdf_i[metric_name].rank(method="min", ascending=True).astype(int)
-                    ranks_dict[h_i] = mdf_i["rank"]
-
-                rank_df = pd.DataFrame(ranks_dict)
-                st.dataframe(rank_df, width="stretch")
-
-                # Tiny line plot for the top-3 models (by final horizon rank)
-                try:
-                    final_r = rank_df.get(H_eff)
-                    if final_r is not None and len(final_r) > 0:
-                        top_models = final_r.nsmallest(min(3, len(final_r))).index.tolist()
-                        fig_stab, ax = plt.subplots(figsize=(10, 3))
-                        xs = list(rank_df.columns)
-                        for m in top_models:
-                            ax.plot(xs, rank_df.loc[m].values, marker="o", linewidth=1, label=m)
-                        ax.invert_yaxis()  # rank 1 at the top
-                        ax.set_xlabel("H")
-                        ax.set_ylabel("Rank (lower = better)")
-                        ax.set_title(f"Rank stability by {metric_name}")
-                        ax.legend(loc="upper right", fontsize=8)
-                        fig_stab.tight_layout()
-                        st.pyplot(fig_stab)
-                except Exception as e:
-                    st.info(f"Stability plot unavailable: {e}")
+                final_r = rank_df.get(H_eff)
+                if final_r is not None and len(final_r) > 0:
+                    top_models = final_r.nsmallest(min(3, len(final_r))).index.tolist()
+                    fig_stab, ax = plt.subplots(figsize=(10, 3))
+                    xs = list(rank_df.columns)
+                    for m in top_models:
+                        ax.plot(xs, rank_df.loc[m].values, marker="o", linewidth=1, label=m)
+                    ax.invert_yaxis()
+                    ax.set_xlabel("H")
+                    ax.set_ylabel("Rank (lower = better)")
+                    ax.set_title(f"Rank stability by {sort_by}")
+                    ax.legend(loc="upper right", fontsize=8)
+                    fig_stab.tight_layout()
+                    st.pyplot(fig_stab)
             except Exception as e:
-                st.info(f"Stability table unavailable: {e}")
-            
-            # --- Decision note (saved in session; included in exports) ---
-            with st.expander("Decision note", expanded=False):
-                st.caption("Optional. Write why you picked a model or any caveats; this will be embedded in CSV exports.")
-                st.text_area(
-                    "Note",
-                    key="compare_decision_note",
-                    height=100,
-                    placeholder="e.g., Chose Prophet @ H=24: lowest RMSE, stable rank; ARIMA overfit on last month.",
-                )
+                st.info(f"Stability plot unavailable: {e}")
+        except Exception as e:
+            st.info(f"Stability table unavailable: {e}")
 
-    # Status line: show when we’re fully in-sync with cache
-    if st.session_state.get("compare_signature") == current_sig:
-        st.caption(f"Using cached results (H={H_eff}, freq={to_human_freq(freq)}).")
+    # --- Decision note (saved in session; included in exports) ---
+    with st.expander("Decision note", expanded=False):
+        st.caption("Optional. Write why you picked a model or any caveats; this will be embedded in CSV exports.")
+        st.text_area(
+            "Note",
+            key="compare_decision_note",
+            height=100,
+            placeholder="e.g., Picked Prophet at H=24 for lowest RMSE, stable rank; ARIMA overfit last month.",
+        )
 
 
     # ---- Overlay plot (last-H forecast-only)
@@ -1804,10 +1864,16 @@ def render_compare_page() -> None:
         y_train_view = y_train.iloc[0:0]
         y_test_view = y_test.iloc[:H_eff]
 
+        # Respect roster filter + mirror badges in legend
+        _roster = set(selected_models) if 'selected_models' in locals() else None
+        _f = {k: v for k, v in forecasts.items() if (_roster is None or k in _roster)}
+        _f_badged = ({ (label_map.get(k, k)): v for k, v in _f.items() }
+                    if 'label_map' in locals() and label_map else _f)
+
         fig = plot_overlay(
             y_train=y_train_view,        # empty → no train region plotted
             y_test=y_test_view,          # exactly the decision horizon
-            forecasts=forecasts,
+            forecasts=_f_badged,
             lower=None,
             upper=None,
             ci_model=None,               # no CI selector here
@@ -1815,22 +1881,24 @@ def render_compare_page() -> None:
             tail=0,                      # guard against any train tail rendering
         )
 
-        st.subheader("Overlay (last H only)")
+        st.subheader("Overlay (last H only, filtered roster)")
         st.pyplot(fig)
-
 
     except Exception as e:
         st.warning(f"Could not render overlay: {e}")
         fig = None
 
     # ---- Exports
+        # ---- Exports
     st.subheader("Downloads")
 
-    with st.expander("Download comparisons as CSV (combined)", expanded=True):
+    with st.expander("Predictions Combined (CSV) and Overlay (PNG)", expanded=False):
+        # Two columns for alignment parity with the Models page
+        col_csv, col_png = st.columns(2)
+
         # Use the first H points of y_test for a common, tz-naive index
         idx = y_test.iloc[:H_eff].index
         try:
-            # CI level (if/when you add per-model lower/upper later)
             level = float(st.session_state.get("ci_level", 0.95))
             ci_pct = int(round(level * 100))
 
@@ -1846,8 +1914,6 @@ def render_compare_page() -> None:
                 combined_df["decision_note"] = _note
                 combined_df["decision_horizon"] = H_eff
 
-
-            # Cache combined CSV bytes by participating models + horizon + level
             names = tuple(sorted(forecasts.keys()))
             key = (names, H_eff, ci_pct)
             csv_bytes = _get_cached_bytes(
@@ -1856,81 +1922,24 @@ def render_compare_page() -> None:
                 lambda: dataframe_to_csv_bytes(combined_df),
             )
             fn = make_default_filenames(base=f"compare_allmodels_h{H_eff}_ci{ci_pct}")
-            st.download_button(
-                "Download CSV (combined forecasts)",
-                data=csv_bytes,
-                file_name=fn["csv"],
-                mime="text/csv",
-                width="stretch",
-            )
-        except Exception as e:
-            st.warning(f"Combined CSV export unavailable: {e}")
-
-    # Sibling expander (not nested) — stacked buttons below the selector
-    with st.expander("Download a model’s forecast as CSV", expanded=True):
-        # Row 1 — selector (same pattern as Models page)
-        model_names = list(forecasts.keys())
-        chosen = st.selectbox("Model", options=model_names, index=0)
-
-        # Helper — identical behavior to Models: make the index tz-naive
-        def _naive_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
-            try:
-                return idx.tz_convert(None)
-            except Exception:
-                try:
-                    return idx.tz_localize(None)
-                except Exception:
-                    return idx
-
-        # Row 2 — two buttons in columns, directly below selector (UI parity)
-        col_csv, col_png = st.columns(2)
-
-        # Left: CSV (selected model), aligned to y_test[:H] and annotated like Models
-        try:
-            y_pred = forecasts[chosen].iloc[:H_eff]
-            idx = _naive_index(y_test.iloc[:H_eff].index)
-
-            level = float(st.session_state.get("ci_level", 0.95))
-            ci_pct = int(round(level * 100))
-
-            fc_df = build_forecast_table(index=idx, y_pred=y_pred)
-            # Mirror Models page: include model + level columns
-            fc_df["model"] = chosen
-            fc_df["level"] = ci_pct
-
-            # Attach decision note (if any)
-            _note = (st.session_state.get("compare_decision_note") or "").strip()
-            if _note:
-                fc_df["decision_note"] = _note
-                fc_df["decision_horizon"] = H_eff
-
-
-            csv_bytes = dataframe_to_csv_bytes(fc_df)
-            fn = make_default_filenames(base=f"{chosen}_compare_h{H_eff}_ci{ci_pct}")
             col_csv.download_button(
-                "Download CSV (selected model)",
+                "Download CSV (combined forecasts)",
                 data=csv_bytes,
                 file_name=fn["csv"],
                 mime="text/csv",
                 use_container_width=True,
             )
         except Exception as e:
-            col_csv.warning(f"CSV export unavailable: {e}")
+            col_csv.warning(f"Combined CSV export unavailable: {e}")
 
-        # Right: PNG (overlay), kept alongside for the same two-button layout feel
+        # Right: overlay PNG (Compare page’s last-H figure)
         try:
             if fig is not None:
-                # Cache PNG bytes using key with horizon, overlay options, and model set
                 names = tuple(sorted(forecasts.keys()))
-                key = ("compare_lastH", names, H_eff, density)
-                png = _get_cached_bytes(
-                    "compare_png_overlay",
-                    key,
-                    lambda: figure_to_png_bytes(fig),
-                )
-                fn = make_default_filenames(base=f"compare_overlay_H{H_eff}")
+                key = ("compare_overlay", names, H_eff, st.session_state.get("density", "expanded"))
+                png = _get_cached_bytes("png", key, lambda: figure_to_png_bytes(fig))
+                fn = make_default_filenames(base="compare_overlay")
                 col_png.download_button(
-
                     "Download PNG (overlay)",
                     data=png,
                     file_name=fn["png"],
@@ -1938,72 +1947,133 @@ def render_compare_page() -> None:
                     use_container_width=True,
                 )
             else:
-                col_png.info("Run comparison to enable plot export.")
+                col_png.info("Run comparison to enable overlay export.")
         except Exception as e:
             col_png.warning(f"PNG export unavailable: {e}")
 
-    # --- Clean export: metrics_by_h.csv (long format) ---
-    with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
-        gran = st.radio(
-            "Granularity",
-            options=["3 points", "All (1…H)"],
-            index=0,
-            horizontal=True,
-            help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
-        )
-
-        if gran.startswith("3"):
-            h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
-        else:
-            h_set = list(range(1, H_eff + 1))
-
-        rows = []
-        for h_i in h_set:
-            try:
-                y_true_i = y_test.iloc[:h_i]
-                f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
-                mdf_i = compute_metrics_table(
-                    y_true=y_true_i,
-                    forecasts=f_i,
-                    include_smape=use_smape,
-                    include_mase=use_mase,
-                    y_train_for_mase=(y_train if use_mase else None),
-                    sort_by=sort_by,
-                    ascending=True,
-                )
-                # Keep only metric columns that actually exist
-                keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
-                tmp = mdf_i[keep_metrics].copy()
-                tmp["model"] = tmp.index.astype(str)
-                tmp["H"] = int(h_i)
-                long_i = tmp.reset_index(drop=True).melt(
-                    id_vars=["model", "H"],
-                    var_name="metric",
-                    value_name="value",
-                )
-                rows.append(long_i)
-            except Exception as _:
-                continue
-
-        if rows:
-            metrics_long = pd.concat(rows, ignore_index=True)
-        else:
-            metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
-
-        try:
-            csv_bytes = dataframe_to_csv_bytes(metrics_long)
-            fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
-            st.download_button(
-                "Download CSV (metrics_by_h)",
-                data=csv_bytes,
-                file_name=fn["csv"],
-                mime="text/csv",
-                use_container_width=True,
+        # --- Clean export: metrics_by_h.csv (long format) ---
+        with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
+            gran = st.radio(
+                "Granularity",
+                options=["3 points", "All (1…H)"],
+                index=0,
+                horizontal=True,
+                key="export_granularity",
+                help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
             )
-            st.caption("Format: columns = model, H, metric, value.")
-        except Exception as e:
-            st.warning(f"Metrics export unavailable: {e}")
 
+            if gran.startswith("3"):
+                h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
+            else:
+                h_set = list(range(1, H_eff + 1))
+
+            rows = []
+            for h_i in h_set:
+                try:
+                    y_true_i = y_test.iloc[:h_i]
+                    f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+                    mdf_i = compute_metrics_table(
+                        y_true=y_true_i,
+                        forecasts=f_i,
+                        include_smape=use_smape,
+                        include_mase=use_mase,
+                        y_train_for_mase=(y_train if use_mase else None),
+                        sort_by=sort_by,
+                        ascending=True,
+                    )
+                    keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
+                    tmp = mdf_i[keep_metrics].copy()
+                    tmp["model"] = tmp.index.astype(str)
+                    tmp["H"] = int(h_i)
+                    long_i = tmp.reset_index(drop=True).melt(
+                        id_vars=["model", "H"],
+                        var_name="metric",
+                        value_name="value",
+                    )
+                    rows.append(long_i)
+                except Exception:
+                    continue
+
+            if rows:
+                metrics_long = pd.concat(rows, ignore_index=True)
+            else:
+                metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
+
+            try:
+                csv_bytes = dataframe_to_csv_bytes(metrics_long)
+                fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
+                st.download_button(
+                    "Download CSV (metrics_by_h)",
+                    data=csv_bytes,
+                    file_name=fn["csv"],
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                st.caption("Format: columns = model, H, metric, value.")
+            except Exception as e:
+                st.warning(f"Metrics export unavailable: {e}")
+ 
+    # # --- Clean export: metrics_by_h.csv (long format) ---
+    # with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
+    #     gran = st.radio(
+    #         "Granularity",
+    #         options=["3 points", "All (1…H)"],
+    #         index=0,
+    #         horizontal=True,
+    #         help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
+    #     )
+
+    #     if gran.startswith("3"):
+    #         h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
+    #     else:
+    #         h_set = list(range(1, H_eff + 1))
+
+    #     rows = []
+    #     for h_i in h_set:
+    #         try:
+    #             y_true_i = y_test.iloc[:h_i]
+    #             f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+    #             mdf_i = compute_metrics_table(
+    #                 y_true=y_true_i,
+    #                 forecasts=f_i,
+    #                 include_smape=use_smape,
+    #                 include_mase=use_mase,
+    #                 y_train_for_mase=(y_train if use_mase else None),
+    #                 sort_by=sort_by,
+    #                 ascending=True,
+    #             )
+    #             # Keep only metric columns that actually exist
+    #             keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
+    #             tmp = mdf_i[keep_metrics].copy()
+    #             tmp["model"] = tmp.index.astype(str)
+    #             tmp["H"] = int(h_i)
+    #             long_i = tmp.reset_index(drop=True).melt(
+    #                 id_vars=["model", "H"],
+    #                 var_name="metric",
+    #                 value_name="value",
+    #             )
+    #             rows.append(long_i)
+    #         except Exception as _:
+    #             continue
+
+    #     if rows:
+    #         metrics_long = pd.concat(rows, ignore_index=True)
+    #     else:
+    #         metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
+
+    #     try:
+    #         csv_bytes = dataframe_to_csv_bytes(metrics_long)
+    #         fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
+    #         st.download_button(
+    #             "Download CSV (metrics_by_h)",
+    #             data=csv_bytes,
+    #             file_name=fn["csv"],
+    #             mime="text/csv",
+    #             use_container_width=True,
+    #         )
+    #         st.caption("Format: columns = model, H, metric, value.")
+    #     except Exception as e:
+    #         st.warning(f"Metrics export unavailable: {e}")
 
     # Context-aware success note: acknowledge if classical models were auto-included
     models_dict = st.session_state.get("models", {}) or {}
