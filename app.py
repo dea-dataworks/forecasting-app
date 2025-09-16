@@ -740,70 +740,71 @@ def render_models_page() -> None:
     # Use the cached results for tables/plots below
     results = st.session_state["baseline_results"]
 
-    # ARIMA (safe defaults)
+    # ARIMA — train only when inputs change; otherwise reuse and just forecast
     if use_arima:
         try:
             freq = st.session_state.get("freq")
             m_choice = st.session_state.get("arima_m_choice", "Auto")
-
-            if m_choice == "Auto":
-                m = infer_season_length_from_freq(freq)
-            else:
-                m = int(m_choice)
-
+            m = infer_season_length_from_freq(freq) if m_choice == "Auto" else int(m_choice)
             seasonal = (m is not None) and (m > 1)
 
-            import time
-            t0 = time.perf_counter()
-            with st.spinner("Training ARIMA…"):
-                arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
-            dt = time.perf_counter() - t0
-            st.caption(f"ARIMA trained in {dt:.2f}s")
+            models_dict = st.session_state.setdefault("models", {})
+            prev_model = models_dict.get("arima")
+            arima_sig = ("arima", len(y_train), y_train.index[0], y_train.index[-1], seasonal, m)
 
-            st.session_state.setdefault("models", {})
-            st.session_state["models"]["arima"] = arima_model
+            if (prev_model is None) or (st.session_state.get("arima_sig") != arima_sig):
+                t0 = time.perf_counter()
+                with st.spinner("Training ARIMA…"):
+                    arima_model = train_auto_arima(y_train, seasonal=seasonal, m=m)
+                st.session_state["arima_sig"] = arima_sig
+                models_dict["arima"] = arima_model
+                st.caption(f"ARIMA trained in {time.perf_counter() - t0:.2f}s")
+            else:
+                arima_model = prev_model  # reuse
 
-            # CI: alpha = 1 - level
-            yhat, lo, hi = forecast_auto_arima(
-                arima_model,
-                test_index=y_test.index,
-                alpha=alpha
-            )
+            # Always (re)forecast cheaply to reflect current CI level
+            yhat, lo, hi = forecast_auto_arima(arima_model, test_index=y_test.index, alpha=alpha)
             results["ARIMA"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
 
-
-    # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
-    # Prophet (uses the same Confidence level as ARIMA; Prophet expects interval_width in 0–1)
+    # Prophet — train only when seasonalities/data change; reuse model and just adjust interval width
     if use_prophet:
         try:
-            ci_level = st.session_state.get("ci_level", 0.95)
-            w = st.session_state.get("prophet_weekly", True)
-            y = st.session_state.get("prophet_yearly", True)
-            d = st.session_state.get("prophet_daily", False)
+            ci_level = float(st.session_state.get("ci_level", 0.95))
+            w = bool(st.session_state.get("prophet_weekly", True))
+            y = bool(st.session_state.get("prophet_yearly", True))
+            d = bool(st.session_state.get("prophet_daily", False))
 
-            import time
-            t0 = time.perf_counter()
-            with st.spinner("Training Prophet…"):
-                prophet_model = train_prophet(
-                    y_train,
-                    weekly=w,
-                    yearly=y,
-                    daily=d,
-                    interval_width=ci_level,
-                )
-            dt = time.perf_counter() - t0
-            st.caption(f"Prophet trained in {dt:.2f}s")
+            models_dict = st.session_state.setdefault("models", {})
+            prev_model = models_dict.get("prophet")
+            prophet_sig = ("prophet", len(y_train), y_train.index[0], y_train.index[-1], w, y, d)
 
-            st.session_state.setdefault("models", {})
-            st.session_state["models"]["prophet"] = prophet_model
+            if (prev_model is None) or (st.session_state.get("prophet_sig") != prophet_sig):
+                t0 = time.perf_counter()
+                with st.spinner("Training Prophet…"):
+                    prophet_model = train_prophet(
+                        y_train,
+                        weekly=w,
+                        yearly=y,
+                        daily=d,
+                        interval_width=ci_level,  # initial width
+                    )
+                st.session_state["prophet_sig"] = prophet_sig
+                models_dict["prophet"] = prophet_model
+                st.caption(f"Prophet trained in {time.perf_counter() - t0:.2f}s")
+            else:
+                prophet_model = prev_model  # reuse
+                # Make CI slider effective without retrain
+                try:
+                    prophet_model.interval_width = ci_level
+                except Exception:
+                    pass
 
             yhat, lo, hi = forecast_prophet(prophet_model, test_index=y_test.index)
             results["Prophet"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
             st.warning(f"Prophet failed: {type(e).__name__}: {e}")
-
 
     st.session_state["baseline_results"] = results  
 
@@ -992,12 +993,13 @@ def render_models_page() -> None:
                 except Exception as e:
                     st.warning(f"Residual ACF/PACF unavailable: {e}")
     
-    # --- Model cards (new) ---
-    st.subheader("Model cards")
-    models_dict = st.session_state.get("models", {}) or {}
-    level = float(st.session_state.get("ci_level", 0.95))
+    # --- Model cards  ---
 
-    c1, c2 = st.columns(2)
+
+    with st.expander("Model Details", expanded=False):
+        models_dict = st.session_state.get("models", {}) or {}
+        level = float(st.session_state.get("ci_level", 0.95))
+        c1, c2 = st.columns(2)
 
     # ARIMA card
     with c1:
@@ -1099,7 +1101,7 @@ def render_models_page() -> None:
     # --- Exports ---
     st.subheader("Exports")
 
-    with st.expander("Download predictions as CSV", expanded=True):
+    with st.expander("Download predictions as CSV", expanded=False):
         # Row 1: selector
         chosen = st.selectbox(
             "Model",
@@ -1137,7 +1139,13 @@ def render_models_page() -> None:
             fc_df["model"] = chosen
             fc_df["level"] = ci_pct
 
-            csv_bytes = dataframe_to_csv_bytes(fc_df)
+            # Cache the CSV bytes to avoid recompute on post-download reruns
+            key = (chosen, H, ci_pct)
+            csv_bytes = _get_cached_bytes(
+                "models_csv_selected",
+                key,
+                lambda: dataframe_to_csv_bytes(fc_df),
+            )
             fn = make_default_filenames(base=f"forecast_{chosen.lower()}_h{H}_ci{ci_pct}")
             col_sel.download_button(
                 "Download CSV (selected model)",
@@ -1146,6 +1154,7 @@ def render_models_page() -> None:
                 mime="text/csv",
                 use_container_width=True,
             )
+
         except Exception as e:
             col_sel.warning(f"CSV export unavailable: {e}")
 
@@ -1166,7 +1175,14 @@ def render_models_page() -> None:
 
             if frames:
                 combined = pd.concat(frames, axis=0)
-                csv_bytes_all = dataframe_to_csv_bytes(combined)
+                # Cache combined bytes keyed by participating models, horizon, and level
+                names = tuple(sorted([name for name, r in results.items() if "y_pred" in r]))
+                key = (names, H, ci_pct)
+                csv_bytes_all = _get_cached_bytes(
+                    "models_csv_combined",
+                    key,
+                    lambda: dataframe_to_csv_bytes(combined),
+                )
                 fn_all = make_default_filenames(base=f"forecast_allmodels_h{H}_ci{ci_pct}")
                 col_all.download_button(
                     "Download CSV (combined)",
@@ -1184,8 +1200,11 @@ def render_models_page() -> None:
     with st.expander("Download overlay plot (PNG)", expanded=False):
         try:
             if fig is not None:
-                png = figure_to_png_bytes(fig)
-                fn = make_default_filenames(base="baseline_overlay")
+                # Key reflects what’s on the chart: participating models + CI source + density + visual window
+                names = tuple(sorted(forecasts.keys()))
+                key = ("models_overlay", names, ci_model, st.session_state.get("density", "expanded"), st.session_state.get("train_tail", 200))
+                png = _get_cached_bytes("png", key, lambda: figure_to_png_bytes(fig))
+                fn = make_default_filenames(base="models_overlay")
                 st.download_button("Download PNG", data=png, file_name=fn["png"], mime="image/png", width="stretch")
             else:
                 st.info("Run baselines to enable plot export.")
@@ -1198,6 +1217,19 @@ def render_models_page() -> None:
             st.success("Baselines computed. You can move to **Compare** or enable ARIMA/Prophet next.")
         else:
             st.success("Baselines loaded from cache. You can move to **Compare** or enable ARIMA/Prophet next.")
+
+# --- export cache helper ---
+def _get_export_cache() -> dict:
+    return st.session_state.setdefault("_export_cache", {})
+
+def _get_cached_bytes(kind: str, key: tuple, builder):
+    cache = _get_export_cache()
+    skey = (kind, key)
+    if skey in cache:
+        return cache[skey]
+    b = builder()
+    cache[skey] = b
+    return b
 
 # --- helper ---
 def build_compare_signature(
@@ -1420,7 +1452,14 @@ def render_compare_page() -> None:
                 # upper=upper_dict,  # optional (future)
             )
 
-            csv_bytes = dataframe_to_csv_bytes(combined_df)
+            # Cache combined CSV bytes by participating models + horizon + level
+            names = tuple(sorted(forecasts.keys()))
+            key = (names, H_eff, ci_pct)
+            csv_bytes = _get_cached_bytes(
+                "compare_csv_combined",
+                key,
+                lambda: dataframe_to_csv_bytes(combined_df),
+            )
             fn = make_default_filenames(base=f"compare_allmodels_h{H_eff}_ci{ci_pct}")
             st.download_button(
                 "Download CSV (combined forecasts)",
@@ -1479,9 +1518,17 @@ def render_compare_page() -> None:
         # Right: PNG (overlay), kept alongside for the same two-button layout feel
         try:
             if fig is not None:
-                png = figure_to_png_bytes(fig)
+                # Cache PNG bytes using key with horizon, overlay options, and model set
+                names = tuple(sorted(forecasts.keys()))
+                key = (names, H_eff, ci_model, density, tail)
+                png = _get_cached_bytes(
+                    "compare_png_overlay",
+                    key,
+                    lambda: figure_to_png_bytes(fig),
+                )
                 fn = make_default_filenames(base=f"compare_overlay_H{H_eff}")
                 col_png.download_button(
+
                     "Download PNG (overlay)",
                     data=png,
                     file_name=fn["png"],
