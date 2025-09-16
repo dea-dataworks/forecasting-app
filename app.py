@@ -615,8 +615,8 @@ def render_models_page() -> None:
 
     # --- Classical model toggles (visible even before first run) ---
     c3, c4 = st.columns([1, 1])
-    use_arima = c3.checkbox("ARIMA (auto)", value=False, disabled=not HAS_PMDARIMA,
-                            help="Auto-ARIMA via pmdarima" + ("" if HAS_PMDARIMA else " — not installed"))
+    use_arima = c3.checkbox("ARIMA", value=False, disabled=not HAS_PMDARIMA,
+                            help="Default Auto-ARIMA via pmdarima" + ("" if HAS_PMDARIMA else " — not installed"))
     use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
 
@@ -624,7 +624,7 @@ def render_models_page() -> None:
     if use_arima and use_prophet:
         models_dict = st.session_state.get("models", {}) or {}
         if ("arima" not in models_dict) and ("prophet" not in models_dict):
-            st.caption("We’ll train **ARIMA → Prophet** (fast → slower).")
+            st.caption("We’ll train **ARIMA → Prophet**.")
 
     # NEW — ARIMA seasonal period (m)
     if HAS_PMDARIMA:
@@ -634,9 +634,11 @@ def render_models_page() -> None:
             options=["Auto", 4, 7, 12, 24, 52],
             index=0,
             key="arima_m_choice",
-            disabled=not use_arima,
             help="Auto = infer from detected frequency. Common picks: 7 (daily→weekly), 12 (monthly), 24 (hourly), 52 (weekly data).",
         )
+        if not use_arima:
+            a1.caption("Pick m first, then enable ARIMA.")
+
         # Show what "Auto" maps to for transparency
         try:
             freq_hint = st.session_state.get("freq")
@@ -647,8 +649,7 @@ def render_models_page() -> None:
         except Exception:
             pass
 
-    # Confidence level (shared UI; for now used by ARIMA only)
-        # Confidence level (shared UI for ARIMA & Prophet)
+    # Confidence level (shared UI for ARIMA & Prophet)
     ci_level = st.slider(
 
         "Confidence level",
@@ -1346,9 +1347,8 @@ def render_models_page() -> None:
             except Exception as e:
                 col_png.warning(f"Residuals export unavailable: {e}")
 
-
-            except Exception as e:
-                col_png.warning(f"Residuals PNG unavailable: {e}")
+            # except Exception as e:
+            #     col_png.warning(f"Residuals PNG unavailable: {e}")
     
     # Show a truthful status only when results exist
     if isinstance(results, dict) and len(results) > 0:
