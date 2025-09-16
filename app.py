@@ -1521,11 +1521,30 @@ def render_compare_page() -> None:
         st.warning(f"Metrics computation failed: {e}")
         metrics_df = pd.DataFrame()
 
-    st.subheader("Leaderboard")
-    st.caption(f"H = {H_eff} • freq = {to_human_freq(freq)}")
+        st.subheader("Leaderboard")
+        st.caption(f"H = {H_eff} • freq = {to_human_freq(freq)}")
 
-    metrics_display = metrics_df.round(4)
-    st.dataframe(metrics_display, width="stretch")
+        # -- New: add relative-to-baseline improvement columns (%)
+        try:
+            # Prefer a seasonal naive if available; fall back to naive/drift/mean; else first row
+            pref = ["Seasonal Naive", "Naive", "Drift", "Mean"]
+            idx = list(metrics_df.index)
+            baseline_name = next((n for n in pref if n in idx), (idx[0] if len(idx) > 0 else None))
+
+            if baseline_name is not None and not metrics_df.empty:
+                base_cols = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in metrics_df.columns]
+                for c in base_cols:
+                    b = metrics_df.at[baseline_name, c]
+                    if pd.notna(b) and b != 0:
+                        # Positive % = better (lower-is-better metrics inverted against baseline)
+                        metrics_df[f"Δ {c} vs {baseline_name} (%)"] = (b - metrics_df[c]) / b * 100.0
+                st.caption(f"Δ columns = % improvement vs **{baseline_name}** (higher = better).")
+        except Exception as e:
+            st.info(f"Baseline deltas skipped: {e}")
+
+        metrics_display = metrics_df.round(4)
+        st.dataframe(metrics_display, width="stretch")
+
 
     # Status line: show when we’re fully in-sync with cache
     if st.session_state.get("compare_signature") == current_sig:
