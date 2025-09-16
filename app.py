@@ -1724,9 +1724,9 @@ def render_compare_page() -> None:
         for nm in names:
             row = view.loc[nm] if nm in view.index else view[view["Model"].astype(str) == nm].iloc[0]
             tag = _badge_text(nm, row)
-            bold_nm = rf"$\bf{{{nm}}}$"
-            decorated.append(f"{bold_nm}  {tag}" if tag else bold_nm)
-
+            plain_nm = nm  # st.dataframe index doesn't render LaTeX/Markdown
+            decorated.append(f"{plain_nm}  {tag}" if tag else plain_nm)
+            
         # Map raw model name -> decorated label (with badges)
         label_map = dict(zip(names, decorated))
 
@@ -1795,7 +1795,7 @@ def render_compare_page() -> None:
             index=0,
             horizontal=True,
             key="stability_granularity",
-            help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
+            help="3 points = metrics at 25%, 50%, and 100% of horizon. All = metrics at every step from 1 to H.",
         )
         # Fallback if rank_df_small/cols_sorted isn’t available
         default_3pts = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
@@ -1951,130 +1951,53 @@ def render_compare_page() -> None:
         except Exception as e:
             col_png.warning(f"PNG export unavailable: {e}")
 
-        # --- Clean export: metrics_by_h.csv (long format) ---
-        with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
-            gran = st.radio(
-                "Granularity",
-                options=["3 points", "All (1…H)"],
-                index=0,
-                horizontal=True,
-                key="export_granularity",
-                help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
-            )
+    # ← end of “Predictions Combined (CSV) and Overlay (PNG)” expander
 
-            if gran.startswith("3"):
-                h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
-            else:
-                h_set = list(range(1, H_eff + 1))
-
-            rows = []
-            for h_i in h_set:
-                try:
-                    y_true_i = y_test.iloc[:h_i]
-                    f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
-                    mdf_i = compute_metrics_table(
-                        y_true=y_true_i,
-                        forecasts=f_i,
-                        include_smape=use_smape,
-                        include_mase=use_mase,
-                        y_train_for_mase=(y_train if use_mase else None),
-                        sort_by=sort_by,
-                        ascending=True,
-                    )
-                    keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
-                    tmp = mdf_i[keep_metrics].copy()
-                    tmp["model"] = tmp.index.astype(str)
-                    tmp["H"] = int(h_i)
-                    long_i = tmp.reset_index(drop=True).melt(
-                        id_vars=["model", "H"],
-                        var_name="metric",
-                        value_name="value",
-                    )
-                    rows.append(long_i)
-                except Exception:
-                    continue
-
-            if rows:
-                metrics_long = pd.concat(rows, ignore_index=True)
-            else:
-                metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
-
+    # --- Clean export: metrics_by_h.csv (now its own expander) ---
+    with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
+        gran = st.radio(
+            "Granularity",
+            options=["3 points", "All (1…H)"],
+            index=0,
+            horizontal=True,
+            key="export_granularity",
+            help="3 points = metrics at 25%, 50%, and 100% of horizon. All = metrics at every step from 1 to H",
+        )
+        if gran.startswith("3"):
+            h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
+        else:
+            h_set = list(range(1, H_eff + 1))
+        rows = []
+        for h_i in h_set:
             try:
-                csv_bytes = dataframe_to_csv_bytes(metrics_long)
-                fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
-                st.download_button(
-                    "Download CSV (metrics_by_h)",
-                    data=csv_bytes,
-                    file_name=fn["csv"],
-                    mime="text/csv",
-                    use_container_width=True,
+                y_true_i = y_test.iloc[:h_i]
+                f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
+                mdf_i = compute_metrics_table(
+                    y_true=y_true_i,
+                    forecasts=f_i,
+                    include_smape=use_smape,
+                    include_mase=use_mase,
+                    y_train_for_mase=(y_train if use_mase else None),
+                    sort_by=sort_by,
+                    ascending=True,
                 )
-                st.caption("Format: columns = model, H, metric, value.")
-            except Exception as e:
-                st.warning(f"Metrics export unavailable: {e}")
- 
-    # # --- Clean export: metrics_by_h.csv (long format) ---
-    # with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
-    #     gran = st.radio(
-    #         "Granularity",
-    #         options=["3 points", "All (1…H)"],
-    #         index=0,
-    #         horizontal=True,
-    #         help="‘3 points’ = {¼H, ½H, H}. ‘All’ computes metrics for every step 1…H.",
-    #     )
-
-    #     if gran.startswith("3"):
-    #         h_set = sorted({max(1, H_eff // 4), max(2, H_eff // 2), H_eff})
-    #     else:
-    #         h_set = list(range(1, H_eff + 1))
-
-    #     rows = []
-    #     for h_i in h_set:
-    #         try:
-    #             y_true_i = y_test.iloc[:h_i]
-    #             f_i = {name: ser.iloc[:h_i] for name, ser in forecasts.items()}
-    #             mdf_i = compute_metrics_table(
-    #                 y_true=y_true_i,
-    #                 forecasts=f_i,
-    #                 include_smape=use_smape,
-    #                 include_mase=use_mase,
-    #                 y_train_for_mase=(y_train if use_mase else None),
-    #                 sort_by=sort_by,
-    #                 ascending=True,
-    #             )
-    #             # Keep only metric columns that actually exist
-    #             keep_metrics = [c for c in ["RMSE", "MAE", "MAPE%", "sMAPE%", "MASE"] if c in mdf_i.columns]
-    #             tmp = mdf_i[keep_metrics].copy()
-    #             tmp["model"] = tmp.index.astype(str)
-    #             tmp["H"] = int(h_i)
-    #             long_i = tmp.reset_index(drop=True).melt(
-    #                 id_vars=["model", "H"],
-    #                 var_name="metric",
-    #                 value_name="value",
-    #             )
-    #             rows.append(long_i)
-    #         except Exception as _:
-    #             continue
-
-    #     if rows:
-    #         metrics_long = pd.concat(rows, ignore_index=True)
-    #     else:
-    #         metrics_long = pd.DataFrame(columns=["model", "H", "metric", "value"])
-
-    #     try:
-    #         csv_bytes = dataframe_to_csv_bytes(metrics_long)
-    #         fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
-    #         st.download_button(
-    #             "Download CSV (metrics_by_h)",
-    #             data=csv_bytes,
-    #             file_name=fn["csv"],
-    #             mime="text/csv",
-    #             use_container_width=True,
-    #         )
-    #         st.caption("Format: columns = model, H, metric, value.")
-    #     except Exception as e:
-    #         st.warning(f"Metrics export unavailable: {e}")
-
+                keep = [c for c in ["RMSE","MAE","MAPE%","sMAPE%","MASE"] if c in mdf_i.columns]
+                tmp = mdf_i[keep].copy()
+                tmp["model"] = tmp.index.astype(str)
+                tmp["H"] = int(h_i)
+                long_i = tmp.reset_index(drop=True).melt(id_vars=["model","H"], var_name="metric", value_name="value")
+                rows.append(long_i)
+            except Exception:
+                continue
+        metrics_long = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["model","H","metric","value"])
+        try:
+            csv_bytes = dataframe_to_csv_bytes(metrics_long)
+            fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
+            st.download_button("Download CSV (metrics_by_h)", data=csv_bytes, file_name=fn["csv"], mime="text/csv", use_container_width=True)
+            st.caption("Format: columns = model, H, metric, value.")
+        except Exception as e:
+            st.warning(f"Metrics export unavailable: {e}")
+       
     # Context-aware success note: acknowledge if classical models were auto-included
     models_dict = st.session_state.get("models", {}) or {}
     included = []
