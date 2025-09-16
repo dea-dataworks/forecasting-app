@@ -616,10 +616,32 @@ def render_models_page() -> None:
                             help="Auto-ARIMA via pmdarima" + ("" if HAS_PMDARIMA else " — not installed"))
     use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
-    
+
+    # NEW — ARIMA seasonal period (m)
+    if HAS_PMDARIMA:
+        a1, a2 = st.columns([1, 1])
+        m_choice = a1.selectbox(
+            "ARIMA seasonal period (m)",
+            options=["Auto", 4, 7, 12, 24, 52],
+            index=0,
+            key="arima_m_choice",
+            disabled=not use_arima,
+            help="Auto = infer from detected frequency. Common picks: 7 (daily→weekly), 12 (monthly), 24 (hourly), 52 (weekly data).",
+        )
+        # Show what "Auto" maps to for transparency
+        try:
+            freq_hint = st.session_state.get("freq")
+            auto_m = infer_season_length_from_freq(freq_hint)
+            if m_choice == "Auto" and auto_m:
+                # `to_human_freq` is defined in this file; keeps message friendly.
+                a2.caption(f"Auto → m = {auto_m} (from freq = {to_human_freq(freq_hint)})")
+        except Exception:
+            pass
+
     # Confidence level (shared UI; for now used by ARIMA only)
         # Confidence level (shared UI for ARIMA & Prophet)
     ci_level = st.slider(
+
         "Confidence level",
         min_value=0.50,
         max_value=0.99,
