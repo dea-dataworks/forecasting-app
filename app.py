@@ -30,11 +30,13 @@ BASE_HEIGHT = 4
 # --- 2) Session state init ----------------------------------------------------
 def init_state_keys() -> None:
     for k in ("df", "train", "test", "freq", "summary",
-              "target_col","datetime_col","baseline_results","compare_cache"):
+                    "target_col","datetime_col","compare_cache"):
         st.session_state.setdefault(k, None)
+    st.session_state.setdefault("baseline_results", {})  # ← dict, not None
+
     st.session_state.setdefault("density", "expanded")
 
-    # NEW: stash for fitted models + default train-tail for overlay plots
+    # stash for fitted models + default train-tail for overlay plots
     st.session_state.setdefault("models", {})        # {"arima": ..., "prophet": ...}
     st.session_state.setdefault("train_tail", 200)   # visual window for overlay plots
 
@@ -192,57 +194,6 @@ def render_data_page() -> None:
 
     st.session_state.df = df_idx
 
-
-    # # --- C) Frequency report (read-only) ---
-    # try:
-    #     freq_report = validate_frequency(df_idx.index)
-    # except Exception as e:
-    #     st.warning(f"Frequency inference issue: {e}")
-    #     freq_report = {"freq": None, "gaps": None, "expected_points": None, "gap_ratio": None, "is_monotonic": False}
-
-    # # Compute summary early so we can render it inside the "Sampling frequency & gaps" expander
-    # try:
-    #     summary = summarize_dataset(df_idx)
-    #     st.session_state.summary = summary
-    # except Exception as e:
-    #     summary = None
-    #     st.warning(f"Summary unavailable: {e}")
-
-    # with st.expander("Frequency & Missing Timestamps", expanded=True):
-    #     if summary:
-    #         left, right = st.columns(2)
-    #         left.write(
-    #             f"**Rows:** {summary['rows']:,}  "
-    #             f"\n**Columns:** {summary['cols']}  "
-    #             f"\n**Start:** {summary['start']}  "
-    #             f"\n**End:** {summary['end']}"
-    #         )
-    #         gap_txt = (
-    #                 f"{summary['gap_ratio']:.2%}" if isinstance(summary.get('gap_ratio'), (int, float))
-    #                 else (summary.get('gap_ratio') or '—')
-    #     )
-    #     right.write(
-    #         f"**Sampling frequency:** {to_human_freq(summary['freq']) if summary['freq'] else '—'}  "
-    #         f"\n**Missing timestamps:** {summary['gaps']}  "
-    #         f"\n**Expected timestamps:** {summary['expected_points']}  "
-    #         f"\n**% missing timestamps:** {gap_txt}"
-    #     )
-
-    #     # Keep helpful nudges under the summary
-    #     if not freq_report.get("is_monotonic", False):
-    #         st.warning("Index is not strictly increasing or has duplicates. Fix your data if modeling fails.")
-    #     if freq_report.get("freq") is None:
-    #         st.info("No clear frequency detected. You can regularize below to help models.")
-
-    # with st.expander("ⓘ Definitions", expanded=False):
-    #     st.markdown(
-    #         "- **Timestamp**: the date/time used as the index.\n"
-    #         "- **Sampling frequency**: Most common spacing between timestamps (e.g., Daily, Weekly).\n"
-    #         "- **Missing timestamps**: Dates absent from the index.\n"
-    #         "- **Expected timestamps**: Total number of timestamps between first and last date, if none were missing.\n"
-    #         "- **% of missing timestamps**: Missing ÷ expected, as a percentage."
-    #         )
-
     # --- C) Frequency probe (read-only, for the nudge only) ---
     try:
         freq_report = validate_frequency(df_idx.index)
@@ -302,7 +253,6 @@ def render_data_page() -> None:
             key="reg_custom_alias",
         ).strip()
 
-
     # Fill method with friendly labels → internal values
     _fill_map = {
         "Forward fill — carry last known value forward.": "ffill",
@@ -332,7 +282,6 @@ def render_data_page() -> None:
         st.session_state["reg_freq_alias"] = chosen_alias
         # NOTE: Do NOT assign to st.session_state["reg_freq_label"] or ["reg_custom_alias"]
         # because those keys are owned by the selectbox/text_input widgets.
-
 
         try:
             df_idx = regularize_and_fill(df_idx, chosen_alias, fill=fill)
@@ -490,7 +439,7 @@ def render_data_page() -> None:
         st.error(f"Split failed: {e}")
         return
     
-    # New: lightweight preview, collapsed by default + last-5 peek
+    # lightweight preview, collapsed by default + last-5 peek
     with st.expander("Data preview (first 5 rows)", expanded=True):
         n_show = st.selectbox("Rows to show", options=[5, 10, 20], index=0)
         st.dataframe(df_idx.head(n_show), width="stretch")
@@ -506,7 +455,6 @@ def render_data_page() -> None:
         f"✅ Data ready — {rows:,} rows • {freq_human} • Target: {target_col} • H = {H} "
         f"(train {len(y_train):,} / test {len(y_test):,})"
     )
-
 
 # --- EDA page ---
 def render_eda_page() -> None:
@@ -915,7 +863,7 @@ def render_models_page() -> None:
         # Density from session (set on the sidebar toggle)
         density = st.session_state.get("density", "expanded")
 
-        # NEW: Train tail slider (visual window only)
+        # Train tail slider (visual window only)
         max_tail = max(50, len(y_train))
         tail = st.slider("Train tail (points)", min_value=50, max_value=max_tail, value=int(st.session_state.get("train_tail", 200)))
         st.session_state["train_tail"] = tail
@@ -1009,7 +957,6 @@ def render_models_page() -> None:
                 except Exception as e:
                     st.warning(f"Residual plot unavailable: {e}")
 
-
                 # ACF / PACF on residuals (clip lags: ≤30 or 10% of length)
                 try:
                     nlags = min(30, max(1, len(resid) // 10))
@@ -1032,8 +979,6 @@ def render_models_page() -> None:
                     st.warning(f"Residual ACF/PACF unavailable: {e}")
     
     # --- Model cards  ---
-
-
     with st.expander("Model Details", expanded=False):
         models_dict = st.session_state.get("models", {}) or {}
         level = float(st.session_state.get("ci_level", 0.95))
@@ -1353,9 +1298,6 @@ def render_models_page() -> None:
             except Exception as e:
                 col_png.warning(f"Residuals export unavailable: {e}")
 
-            # except Exception as e:
-            #     col_png.warning(f"Residuals PNG unavailable: {e}")
-    
     # Show a truthful status only when results exist
     if isinstance(results, dict) and len(results) > 0:
         if just_ran:
@@ -1409,7 +1351,7 @@ def render_compare_page() -> None:
     y_train = st.session_state.get("train")
     y_test = st.session_state.get("test")
     freq = st.session_state.get("freq")
-    baseline_results = st.session_state.get("baseline_results", {})
+    baseline_results = st.session_state.get("baseline_results") or {}
 
     if y_train is None or y_test is None:
         st.info("Finish the **Data** and **Models** pages first.")
@@ -1854,7 +1796,6 @@ def render_compare_page() -> None:
             placeholder="e.g., Picked Prophet at H=24 for lowest RMSE, stable rank; ARIMA overfit last month.",
         )
 
-
     # ---- Overlay plot (last-H forecast-only)
     try:
         # No CI on Compare; we focus on the decision horizon only
@@ -1951,7 +1892,6 @@ def render_compare_page() -> None:
         except Exception as e:
             col_png.warning(f"PNG export unavailable: {e}")
 
-    # ← end of “Predictions Combined (CSV) and Overlay (PNG)” expander
 
     # --- Clean export: metrics_by_h.csv (now its own expander) ---
     with st.expander("Download metrics by horizon (CSV, long format)", expanded=False):
@@ -2040,4 +1980,3 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-# .\.venv-forecasting\Scripts\activate
