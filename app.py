@@ -1596,10 +1596,41 @@ def render_compare_page() -> None:
 
         # Build a timing frame aligned to metrics_df
         timing_df = pd.DataFrame.from_dict(times, orient="index")
+        
         # Merge and display
         merged = metrics_df.join(timing_df, how="left")
-        metrics_display = merged.round({"RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4, "fit_s": 2, "forecast_ms/step": 2})
+
+        # --- Roster filter (checkboxes) for leaderboard ---
+        with st.expander("Filter models on leaderboard", expanded=False):
+            if "Model" in merged.columns:
+                _labels = merged["Model"].astype(str).tolist()
+                _by_index = False
+            else:
+                _labels = merged.index.astype(str).tolist()
+                _by_index = True
+
+            ncols = min(4, max(1, len(_labels)))
+            cols = st.columns(ncols)
+            _flags = {}
+            for i, name in enumerate(_labels):
+                with cols[i % ncols]:
+                    _flags[name] = st.checkbox(name, value=True, key=f"cmp_roster_{i}")
+
+            selected_models = [m for m, ok in _flags.items() if ok]
+            if not selected_models:
+                st.warning("Select at least one model to show.")
+                merged_view = merged.iloc[0:0].copy()
+            else:
+                if _by_index:
+                    mask = merged.index.astype(str).isin(selected_models)
+                    merged_view = merged.loc[mask]
+                else:
+                    mask = merged["Model"].astype(str).isin(selected_models)
+                    merged_view = merged.loc[mask]
+
+        metrics_display = merged_view.round({"RMSE": 4, "MAE": 4, "MAPE%": 4, "sMAPE%": 4, "MASE": 4, "fit_s": 2, "forecast_ms/step": 2})
         st.dataframe(metrics_display, width="stretch")
+
 
         # --- Stability indicator: how ranks change as H grows ---
         with st.expander("Stability across horizons", expanded=False):
