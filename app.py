@@ -1532,48 +1532,36 @@ def render_compare_page() -> None:
         st.caption(f"Using cached results (H={H_eff}, freq={to_human_freq(freq)}).")
 
 
-    # ---- Overlay plot
+    # ---- Overlay plot (last-H forecast-only)
     try:
-        # show the CI selector only when any model provides lower/upper.
-        # For v0.2, show the CI selector only when any model provides lower/upper.
-        lower: dict[str, pd.Series] = {}
-        upper: dict[str, pd.Series] = {}
-
-        ci_candidates = sorted(set(lower.keys()) & set(upper.keys()) & set(forecasts.keys()))
-        if ci_candidates:
-            ci_model = st.selectbox(
-                "Show CI band from",
-                options=ci_candidates,
-                index=0,
-                key="compare_ci_model",
-            )
-        else:
-            ci_model = None
+        # No CI on Compare; we focus on the decision horizon only
         density = st.session_state.get("density", "expanded")
 
-        # Use the same visual window as the Models page; clamp to [1, len(y_train)]
-        tail = int(st.session_state.get("train_tail", 200))
-        tail = max(1, min(tail, len(y_train)))
+        # Empty train slice ensures we don’t render train; show only last H (test) + forecasts
+        y_train_view = y_train.iloc[0:0]
+        y_test_view = y_test.iloc[:H_eff]
 
         fig = plot_overlay(
-            y_train=y_train,
-            y_test=y_test.iloc[:H_eff],
+            y_train=y_train_view,        # empty → no train region plotted
+            y_test=y_test_view,          # exactly the decision horizon
             forecasts=forecasts,
-            lower=lower if lower else None,
-            upper=upper if upper else None,
-            ci_model=ci_model,
+            lower=None,
+            upper=None,
+            ci_model=None,               # no CI selector here
             density=density,
-            tail=tail,
+            tail=0,                      # guard against any train tail rendering
         )
 
-        st.subheader("Overlay")
+        st.subheader("Overlay (last H only)")
         st.pyplot(fig)
+
+
     except Exception as e:
         st.warning(f"Could not render overlay: {e}")
         fig = None
 
     # ---- Exports
-    st.subheader("Exports")
+    st.subheader("Downloads")
 
     with st.expander("Download comparisons as CSV (combined)", expanded=True):
         # Use the first H points of y_test for a common, tz-naive index
@@ -1659,7 +1647,7 @@ def render_compare_page() -> None:
             if fig is not None:
                 # Cache PNG bytes using key with horizon, overlay options, and model set
                 names = tuple(sorted(forecasts.keys()))
-                key = (names, H_eff, ci_model, density, tail)
+                key = ("compare_lastH", names, H_eff, density)
                 png = _get_cached_bytes(
                     "compare_png_overlay",
                     key,
