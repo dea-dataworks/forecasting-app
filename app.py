@@ -393,6 +393,7 @@ def render_data_page() -> None:
         "Select split type",
         options=["percentage", "count"],
         horizontal=True,
+        key="split_type_choice",
         help="Reserve either the last % or N rows for testing"
     )
 

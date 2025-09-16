@@ -1,133 +1,131 @@
-# Time-Series Forecasting App (Streamlit)
+# Time-Series Forecasting App — v0.2
 
-Upload a CSV, detect the datetime index, explore the series, run baselines and classical models (optional ARIMA/Prophet), compare results, and download forecasts/plots — all in one lightweight app.
+**Upload a CSV, explore EDA, run baselines & classical models, and compare forecasts.**  
+Built with Streamlit, pandas, pmdarima/Prophet (optional).
 
-> **Status:** v0.1 — core flow complete (Data → EDA → Models → Compare).    
-> **Python:** 3.12 recommended.  
-> **Streamlit:** 1.39+ (uses the new `width="stretch"` param).
+![Demo](assets/demo.gif)
 
 ---
 
-## Features
+## Key Features (v0.2)
 
-- **Data input & validation**
-  - Read CSV safely, detect/parse datetime, enforce uniqueness & sort, infer frequency, optionally regularize to a fixed grid.
+- **Data Input & Validation**
+  - Safe CSV upload, datetime auto-detection, frequency inference
+  - Optional regularization to fixed frequency + gap filling
+
 - **EDA**
-  - Raw plot, rolling window plot, quick stats (min/mean/max).
-- **Baselines**
-  - Chronological split (no shuffling), Naive, Moving Average, metrics (MAE, RMSE, MAPE with safe handling).
-- **Classical models** *(optional deps; app skips gracefully if missing)*
-  - Auto-ARIMA via `pmdarima`.
-  - Prophet with common seasonalities.
+  - Raw plot, rolling stats, variance bands
+  - Quick summary stats
+
+- **Forecasting Models**
+  - Baselines: Naive, Moving Average
+  - Classical (optional): Auto-ARIMA, Prophet
+  - Chronological split (no shuffling), safe horizon validation
+
 - **Compare**
-  - Horizon validation, aligned forecasts, overlay chart, metrics leaderboard.
-- **Outputs**
-  - Downloadable CSV of forecasts and PNG of plots.
+  - Overlay last-H forecasts across models
+  - Metrics leaderboard with Δ% vs baseline, runtime columns
+  - Granularity for horizon metrics (3 points or All 1…H)
+
+- **Exports**
+  - Forecasts → CSV/PNG
+  - Compare metrics by horizon → CSV
 
 ---
 
-## Quickstart
+## Quick Start
+
+> Tested with **Python 3.12** on Windows. Prophet may need a compiler toolchain.
 
 ```bash
-# 1) Create & activate a clean venv (Python 3.12+)
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS/Linux
-source .venv/bin/activate
+# 1) Clone
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
 
-# 2) Install core requirements
+# 2) Create & activate venv
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1  # Windows
+# source .venv/bin/activate   # macOS/Linux
+
+# 3) Install core requirements
 pip install -r requirements.txt
 
-# 3) (Optional) Enable classical models
-# These are heavier; skip if you just want baselines.
-pip install pmdarima
-pip install prophet  # may require a C++ toolchain; see Troubleshooting
+# 4) (Optional) Classical models
+pip install pmdarima prophet
 
-# 4) Run the app
+# 5) Run
 streamlit run app.py
 ```
 
-Open the local URL Streamlit prints (usually http://localhost:8501).
+Open the local URL that Streamlit prints (usually http://localhost:8501).
 
 ---
 
-## How to use the app
-
-1. **Data tab**
-   - Upload a CSV. Choose/confirm the datetime column if needed.
-   - Review the inferred frequency and (optionally) regularize/fill gaps.
-   - Pick the value column (single numeric series).
-2. **EDA tab**
-   - Inspect the raw line plot, rolling mean, and quick stats.
-3. **Models tab**
-   - Choose a **chronological split** ratio.
-   - Run **Baselines** (always available).
-   - Optionally toggle **ARIMA** and/or **Prophet** (only if installed).
-   - Download forecast CSV/plot.
-4. **Compare tab**
-   - Select which models to include.
-   - Set a horizon (validated against the test set).
-   - View the overlay plot + leaderboard table.
-   - Download the comparison outputs.
-
-> Tip: The UI includes a **density toggle** (compact/expanded). Streamlit reruns on every widget change; session state is used so your data and trained models persist.
-
----
-
-## Project structure
+## Project Structure (typical)
 
 ```
-.
-├─ app.py                 # Streamlit UI (nav, pages, wiring)
-├─ ui.css                 # Optional CSS tweaks for density/spacing
-├─ requirements.txt       # Core deps (Streamlit, pandas, numpy, matplotlib)
-├─ CHANGELOG.md           # Phase-by-phase notes
-└─ src/
-   ├─ __init__.py
-   ├─ data_input.py       # CSV load, datetime detect, freq check, regularize, summary
-   ├─ eda.py              # Raw & rolling plots, basic stats
-   ├─ baselines.py        # Split, naive, moving average, metrics
-   ├─ classical.py        # Auto-ARIMA + Prophet (optional imports guarded)
-   ├─ compare.py          # Horizon validate, forecast adapter, overlay, leaderboard
-   └─ outputs.py          # Forecast table builder, CSV/PNG serializers, filenames
+<repo-root>/
+├─ app.py
+├─ src/
+│  ├─ data_input.py
+│  ├─ eda.py
+│  ├─ baselines.py
+│  ├─ classical.py
+│  ├─ compare.py
+│  └─ outputs.py
+├─ assets/
+│  ├─ demo.gif
+│  ├─ eda.gif
+│  ├─ models.gif
+│  ├─ compare.gif
+│  └─ screenshots/
+│     ├─ data.png
+│     ├─ eda.png
+│     ├─ models.png
+│     └─ compare.png
+├─ requirements.txt
+├─ README.md
+├─ LICENSE
+└─ CHANGELOG.md
 ```
 
 ---
 
-## Configuration & notes
+## Screenshots
 
-- **Streamlit version:** Uses the new `width="stretch"` replacement for deprecated `use_container_width`.  
-  Make sure you’re on **Streamlit ≥ 1.39**.
-- **Optional dependencies:**
-  - `pmdarima` for ARIMA (pip-installable on Python 3.12; Python 3.13 support may lag).
-  - `prophet` for Prophet (requires a C++ toolchain via `cmdstanpy` under the hood).
-- **Design guardrails:**
-  - No data leakage: chronological split only.
-  - DatetimeIndex enforced; functions validate shapes/lengths.
-  - Metrics handle NaNs/zero-division safely.
+| Data Page | EDA Page | Models Page | Compare Page |
+| --- | --- | --- | --- |
+| ![Data](assets/screenshots/data.png) | ![EDA](assets/screenshots/eda.png) | ![Models](assets/screenshots/models.png) | ![Compare](assets/screenshots/compare.png) |
 
 ---
 
-## Troubleshooting
+### Extra GIFs
 
-**Prophet install fails (Windows)**
-- Install Microsoft C++ Build Tools, then:
-  ```bash
-  pip install prophet
-  ```
-- If build is still heavy, consider skipping Prophet for now; baselines and ARIMA still work.
-
-**`pmdarima` fails to build**
-- Use **Python 3.12** in a fresh venv. On 3.13, wheels may be unavailable at times.
-- Upgrade pip & build tools: `pip install --upgrade pip setuptools wheel`.
-
-**Streamlit warning about `use_container_width`**
-- This repo already uses `width="stretch"`. Ensure Streamlit **≥ 1.39**:
-  ```bash
-  pip install "streamlit>=1.39,<2"
-  ```
+- [EDA demo](assets/eda.gif)  
+- [Models demo](assets/models.gif)  
+- [Compare demo](assets/compare.gif)
 
 ---
 
+## Metrics Glossary
 
+- **MAE** — average absolute error (same units as data)  
+- **RMSE** — root mean squared error (penalizes large errors)  
+- **MAPE** — mean absolute percentage error (ignores points with true=0)  
+
+---
+
+## Roadmap
+
+- **v0.3 (ideas):**
+  - Add screenshots/GIFs to repo (see placeholders above)
+  - Stability indicator vs H
+  - Model roster filters
+  - Streamlit visual polish & theme
+  - Hosted demo link (Streamlit Cloud)
+
+---
+
+## License
+
+MIT License. See `LICENSE` for details.
