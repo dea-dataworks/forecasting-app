@@ -523,7 +523,7 @@ def render_eda_page() -> None:
             period_arg = None if period_choice == "auto" else int(period_choice)
             try:
                 fig_dec = plot_decomposition(y_df, period=period_arg)
-                st.pyplot(fig_dec, use_container_width=True)
+                st.pyplot(fig_dec, width='stretch')
             except Exception as e:
                 st.warning(f"Decomposition unavailable: {e}")
 
@@ -536,10 +536,10 @@ def render_eda_page() -> None:
                        "- PACF: shows the direct effect of each lag after accounting for earlier ones.")
             try:
                 fig_acf = plot_acf_series(y_df)
-                st.pyplot(fig_acf, use_container_width=True)
+                st.pyplot(fig_acf, width='stretch')
 
                 fig_pacf = plot_pacf_series(y_df)
-                st.pyplot(fig_pacf, use_container_width=True)
+                st.pyplot(fig_pacf, width='stretch')
             except Exception as e:
                 st.warning(f"ACF/PACF unavailable: {e}")
 
@@ -1131,7 +1131,7 @@ def render_models_page() -> None:
                     data=csv_bytes_all,
                     file_name=fn_all["csv"],
                     mime="text/csv",
-                    use_container_width=True,
+                    width='stretch',
                 )
             else:
                 col_csv.info("No forecasts available to combine.")
@@ -1150,7 +1150,7 @@ def render_models_page() -> None:
                     data=png,
                     file_name=fn["png"],
                     mime="image/png",
-                    use_container_width=True,
+                    width='stretch',
                 )
             else:
                 col_png.info("Run baselines to enable overlay export.")
@@ -1213,7 +1213,7 @@ def render_models_page() -> None:
                     data=csv_bytes,
                     file_name=fn["csv"],
                     mime="text/csv",
-                    use_container_width=True,
+                    width='stretch',
                 )
             except Exception as e:
                 col_csv.warning(f"CSV export unavailable: {e}")
@@ -1294,7 +1294,7 @@ def render_models_page() -> None:
                         data=zip_buf.getvalue(),
                         file_name=f"residuals_{chosen.lower()}_bundle.zip",
                         mime="application/zip",
-                        use_container_width=True,
+                        width='stretch',
                     )
             except Exception as e:
                 col_png.warning(f"Residuals export unavailable: {e}")
@@ -1725,7 +1725,7 @@ def render_compare_page() -> None:
             cols_sorted = sorted(list(rank_df_small.columns))
             pretty_cols = {c: f"rank@{c}" for c in cols_sorted}
             st.caption("Rank drift (lower = steadier):")
-            st.dataframe(rank_df_small[cols_sorted].rename(columns=pretty_cols), use_container_width=True, height=200)
+            st.dataframe(rank_df_small[cols_sorted].rename(columns=pretty_cols), width='stretch', height=200)
     except Exception as e:
         st.info(f"Rank drift preview unavailable: {e}")
 
@@ -1869,7 +1869,7 @@ def render_compare_page() -> None:
                 data=csv_bytes,
                 file_name=fn["csv"],
                 mime="text/csv",
-                use_container_width=True,
+                width='stretch',
             )
         except Exception as e:
             col_csv.warning(f"Combined CSV export unavailable: {e}")
@@ -1886,7 +1886,7 @@ def render_compare_page() -> None:
                     data=png,
                     file_name=fn["png"],
                     mime="image/png",
-                    use_container_width=True,
+                    width='stretch',
                 )
             else:
                 col_png.info("Run comparison to enable overlay export.")
@@ -1934,7 +1934,7 @@ def render_compare_page() -> None:
         try:
             csv_bytes = dataframe_to_csv_bytes(metrics_long)
             fn = make_default_filenames(base=f"metrics_by_h_H{H_eff}")
-            st.download_button("Download CSV (metrics_by_h)", data=csv_bytes, file_name=fn["csv"], mime="text/csv", use_container_width=True)
+            st.download_button("Download CSV (metrics_by_h)", data=csv_bytes, file_name=fn["csv"], mime="text/csv", width='stretch')
             st.caption("Format: columns = model, H, metric, value.")
         except Exception as e:
             st.warning(f"Metrics export unavailable: {e}")

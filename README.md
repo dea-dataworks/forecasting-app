@@ -97,21 +97,6 @@ Open the local URL that Streamlit prints (usually http://localhost:8501).
 | --- | --- | --- | --- |
 | ![Data](assets/screenshots/data.png) | ![EDA](assets/screenshots/eda.png) | ![Models](assets/screenshots/models.png) | ![Compare](assets/screenshots/compare.png) |
 
----
-
-### Extra GIFs
-
-- [EDA demo](assets/eda.gif)  
-- [Models demo](assets/models.gif)  
-- [Compare demo](assets/compare.gif)
-
----
-
-## Metrics Glossary
-
-- **MAE** — average absolute error (same units as data)  
-- **RMSE** — root mean squared error (penalizes large errors)  
-- **MAPE** — mean absolute percentage error (ignores points with true=0)  
 
 ---
 
