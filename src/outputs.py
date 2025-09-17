@@ -2,8 +2,8 @@ from typing import Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 import io
-from matplotlib.figure import Figure
 from datetime import datetime
+import re
 
 ArrayLike = Union[pd.Series, Sequence[float], np.ndarray]
 
@@ -104,7 +104,6 @@ def figure_to_png_bytes(fig, dpi: int = 120) -> bytes:
     - Uses tight bounding box to avoid excess padding.
     - Preserves figure facecolor so dark/light themes look right in the PNG.
     """
-    import io
 
     if fig is None:
         raise ValueError("figure_to_png_bytes: 'fig' is None")
@@ -132,9 +131,6 @@ def make_default_filenames(base: str = "forecast") -> dict:
 
     `base` should be short and safe (no spaces); caller can inject target/horizon.
     """
-    import re
-    from datetime import datetime
-
     # slugify `base`
     s = str(base).strip().lower()
     s = re.sub(r"\s+", "_", s)

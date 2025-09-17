@@ -4,7 +4,6 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Optional
 from io import BytesIO
 import zipfile
 from src.data_input import (load_csv,detect_datetime,validate_frequency,regularize_and_fill,summarize_dataset,)
@@ -608,13 +607,13 @@ def render_models_page() -> None:
     use_prophet = c4.checkbox("Prophet", value=False, disabled=not HAS_PROPHET,
                             help="Additive model with seasonality" + ("" if HAS_PROPHET else " — not installed"))
 
-    # NEW — when both are selected and neither is trained yet, tell the user the run order
+    # when both are selected and neither is trained yet, tell the user the run order
     if use_arima and use_prophet:
         models_dict = st.session_state.get("models", {}) or {}
         if ("arima" not in models_dict) and ("prophet" not in models_dict):
             st.caption("We’ll train **ARIMA → Prophet**.")
 
-    # NEW — ARIMA seasonal period (m)
+    # ARIMA seasonal period (m)
     if HAS_PMDARIMA:
         a1, a2 = st.columns([1, 1])
         m_choice = a1.selectbox(
@@ -873,7 +872,6 @@ def render_models_page() -> None:
 
     # --- Overlay plot (train tail, test, and baseline forecasts) ---
     try:
-        # Build forecasts dict from results: {'name': y_pred_series, ...}
         # Build forecasts dict from results: {'name': y_pred_series, ...}
         forecasts = {
             name: res["y_pred"]
@@ -1493,7 +1491,7 @@ def render_compare_page() -> None:
     forecasts = cache["forecasts"]
     H_eff = cache["H"]
 
-        # Recompute metrics cheaply from cached forecasts (respect current toggles), using cached H
+    # Recompute metrics cheaply from cached forecasts (respect current toggles), using cached H
     try:
         y_true = y_test.iloc[:H_eff]
         metrics_df = compute_metrics_table(
@@ -1719,10 +1717,7 @@ def render_compare_page() -> None:
         except Exception:
             winner_key = None
 
-        decorated_final = []
-        for nm, lab in zip(names, decorated):
-            decorated_final.append(f"[winner] {lab}" if (winner_key is not None and nm == winner_key) else lab)
-        display.index = decorated_final
+        display.index = decorated
 
         # Append % sign inside Δ columns for readability
         _delta_cols_disp = [c for c in display.columns if c.startswith("Δ ")]
@@ -1870,7 +1865,6 @@ def render_compare_page() -> None:
         fig = None
 
     # ---- Exports
-        # ---- Exports
     st.subheader("Downloads")
 
     with st.expander("Predictions Combined (CSV) and Overlay (PNG)", expanded=False):
@@ -1990,12 +1984,6 @@ def render_compare_page() -> None:
         st.success(f"Comparison ready. Included trained {', '.join(included)} from **Models**.")
     else:
         st.success("Comparison ready. Train **ARIMA** or **Prophet** on the **Models** page to broaden the race.")
-
-
-# DELETE
-def render_placeholder_page(name: str) -> None:
-    st.markdown(f"### {name}")
-    st.info(f"{name} page is coming soon. Shell only for Phase 7.")
 
 # --- 7) Main ------------------------------------------------------------------
 def main() -> None:

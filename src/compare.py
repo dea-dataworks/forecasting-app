@@ -540,7 +540,7 @@ def comparison_run(
     density: str = "expanded",
 ) -> Tuple[pd.DataFrame, Dict[str, pd.Series], "plt.Figure"]:
     """
-    Orchestrate Phase 5:
+    Orchestrate comparison run:
       1) Validate horizon against test length
       2) Generate aligned forecasts for all models
       3) Compute side-by-side metrics table

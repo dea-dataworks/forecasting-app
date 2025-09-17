@@ -3,7 +3,6 @@ import warnings
 from typing import Optional, Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
-import warnings
 
 # Silence only ARIMA convergence warnings during fitting
 try:

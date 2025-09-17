@@ -93,8 +93,13 @@ def detect_datetime(df):
     if not is_datetime64_any_dtype(df_out[chosen]):
         df_out[chosen] = pd.to_datetime(df_out[chosen], errors="coerce")
 
-    if df_out[chosen].isna().any():
-        raise ValueError(f"Datetime parsing failed for column '{chosen}'.")
+    n_bad = int(df_out[chosen].isna().sum())
+    if n_bad > 0:
+        total = len(df_out)
+        pct = round(n_bad / total * 100, 2)
+        raise ValueError(
+            f"Datetime parsing failed for column '{chosen}': {n_bad}/{total} rows invalid ({pct}%)."
+        )
 
     df_out = df_out.set_index(chosen).sort_index()
 
@@ -103,9 +108,6 @@ def detect_datetime(df):
         raise ValueError(f"Found {dup_n} duplicate timestamps. Please fix your data.")
 
     return df_out, chosen
-
-import pandas as pd
-
 
 def validate_frequency(idx: pd.DatetimeIndex) -> dict:
     """
