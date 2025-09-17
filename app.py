@@ -750,7 +750,7 @@ def render_models_page() -> None:
             yhat, lo, hi = forecast_auto_arima(arima_model, test_index=y_test.index, alpha=alpha)
             results["ARIMA"] = {"y_pred": yhat, "lower": lo, "upper": hi}
         except Exception as e:
-            st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
+             st.warning(f"ARIMA failed: {type(e).__name__}: {e}")
 
     # Prophet — train only when seasonalities/data change; reuse model and just adjust interval width
     if use_prophet:

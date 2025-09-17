@@ -3,6 +3,13 @@ import warnings
 from typing import Optional, Tuple
 import pandas as pd
 import matplotlib.pyplot as plt
+import warnings
+
+# Silence only ARIMA convergence warnings during fitting
+try:
+    from statsmodels.tools.sm_exceptions import ConvergenceWarning as SMConvergenceWarning
+except Exception:
+    SMConvergenceWarning = None
 
 # Optional deps
 try:
@@ -43,20 +50,37 @@ def train_auto_arima(
     if seasonal and (m is None or m < 1):
         raise ValueError("When seasonal=True, provide a positive integer m (season length).")
 
-    model = pm.auto_arima(
-        y_train,
-        seasonal=seasonal,
-        m=(m or 1),
-        start_p=0, start_q=0, start_P=0, start_Q=0,
-        max_p=max_p, max_q=max_q, max_d=max_d,
-        max_P=max_P, max_Q=max_Q, max_D=max_D,
-        stepwise=stepwise,
-        information_criterion="aic",
-        suppress_warnings=suppress_warnings,
-        error_action="ignore",
-        trace=False,
-    )
+    # Fit while suppressing noisy convergence warnings from statsmodels
+    with warnings.catch_warnings():
+        # Ignore general user-level warnings
+        warnings.simplefilter("ignore", category=UserWarning)
+
+        # Ignore statsmodels convergence warnings, if available
+        if SMConvergenceWarning is not None:
+            warnings.simplefilter("ignore", category=SMConvergenceWarning)
+
+        # Ignore the scikit-learn rename warning from pmdarima
+        warnings.filterwarnings(
+            "ignore",
+            category=FutureWarning,
+            message=r".*'force_all_finite'.*"
+        )
+
+        model = pm.auto_arima(
+            y_train,
+            seasonal=seasonal,
+            m=(m or 1),
+            start_p=0, start_q=0, start_P=0, start_Q=0,
+            max_p=max_p, max_q=max_q, max_d=max_d,
+            max_P=max_P, max_Q=max_Q, max_D=max_D,
+            stepwise=stepwise,
+            information_criterion="aic",
+            suppress_warnings=suppress_warnings,
+            error_action="ignore",
+            trace=False,
+        )
     return model
+
 
 # Auto-ARIMA forecasting + intervals: We forecast exactly over test index (aligns outputs cleanly for plotting and metrics).
 def forecast_auto_arima(
@@ -72,7 +96,20 @@ def forecast_auto_arima(
         raise ValueError("ARIMA model is None. Did training succeed?")
 
     n_periods = len(test_index)
-    y_pred_np, conf = model.predict(n_periods=n_periods, return_conf_int=True, alpha=alpha)
+
+    # Silence sklearn rename warning triggered inside pmdarima during predict
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=FutureWarning,
+            message=r".*'force_all_finite'.*"
+        )
+        y_pred_np, conf = model.predict(
+            n_periods=n_periods,
+            return_conf_int=True,
+            alpha=alpha,
+        )
+
     y_pred = pd.Series(y_pred_np, index=test_index, name="arima_pred")
     y_low  = pd.Series(conf[:, 0], index=test_index, name="arima_low")
     y_high = pd.Series(conf[:, 1], index=test_index, name="arima_high")
