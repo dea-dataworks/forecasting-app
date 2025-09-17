@@ -58,52 +58,52 @@ def sidebar_nav() -> str:
                     )
     return page
 
-# --- 4) Import smoke test (no logic calls) -----------------------------------
-def import_smoke_test() -> None:
-    try:
-        # Import ONLY to verify paths; do not call heavy functions yet.
-        from src import data_input, eda, baselines, classical, compare  # noqa: F401
-    except Exception as e:
-        st.sidebar.warning(f"⚠️ Import check: {type(e).__name__}: {e}")
-        return
+# # --- 4) Import smoke test (no logic calls) -----------------------------------
+# def import_smoke_test() -> None:
+#     try:
+#         # Import ONLY to verify paths; do not call heavy functions yet.
+#         from src import data_input, eda, baselines, classical, compare  # noqa: F401
+#     except Exception as e:
+#         st.sidebar.warning(f"⚠️ Import check: {type(e).__name__}: {e}")
+#         return
 
-    # --- Optional deps status (helps explain greyed-out toggles)
-    import sys
-    from importlib import metadata
-    st.sidebar.caption(f"Python: {sys.executable}")
+#     # --- Optional deps status (helps explain greyed-out toggles)
+#     import sys
+#     from importlib import metadata
+#     st.sidebar.caption(f"Python: {sys.executable}")
 
-    # pmdarima
-    if getattr(classical, "HAS_PMDARIMA", False):
-        try:
-            import pmdarima as _pm  # type: ignore
-            st.sidebar.caption(f"pmdarima ✓ {_pm.__version__}")
-        except Exception:
-            # Fallback to package metadata
-            try:
-                st.sidebar.caption(f"pmdarima ✓ {metadata.version('pmdarima')}")
-            except Exception:
-                st.sidebar.caption("pmdarima ✓ (version unknown)")
-    else:
-        err = getattr(classical, "PMDARIMA_IMPORT_ERROR", None)
-        st.sidebar.warning("pmdarima ✗ (not importable)")
-        if err:
-            st.sidebar.caption(err)
+#     # pmdarima
+#     if getattr(classical, "HAS_PMDARIMA", False):
+#         try:
+#             import pmdarima as _pm  # type: ignore
+#             st.sidebar.caption(f"pmdarima ✓ {_pm.__version__}")
+#         except Exception:
+#             # Fallback to package metadata
+#             try:
+#                 st.sidebar.caption(f"pmdarima ✓ {metadata.version('pmdarima')}")
+#             except Exception:
+#                 st.sidebar.caption("pmdarima ✓ (version unknown)")
+#     else:
+#         err = getattr(classical, "PMDARIMA_IMPORT_ERROR", None)
+#         st.sidebar.warning("pmdarima ✗ (not importable)")
+#         if err:
+#             st.sidebar.caption(err)
 
-    # prophet
-    if getattr(classical, "HAS_PROPHET", False):
-        try:
-            from prophet import __version__ as _pv  # type: ignore
-            st.sidebar.caption(f"prophet ✓ {_pv}")
-        except Exception:
-            try:
-                st.sidebar.caption(f"prophet ✓ {metadata.version('prophet')}")
-            except Exception:
-                st.sidebar.caption("prophet ✓ (version unknown)")
-    else:
-        err = getattr(classical, "PROPHET_IMPORT_ERROR", None)
-        st.sidebar.warning("prophet ✗ (not importable)")
-        if err:
-            st.sidebar.caption(err)
+#     # prophet
+#     if getattr(classical, "HAS_PROPHET", False):
+#         try:
+#             from prophet import __version__ as _pv  # type: ignore
+#             st.sidebar.caption(f"prophet ✓ {_pv}")
+#         except Exception:
+#             try:
+#                 st.sidebar.caption(f"prophet ✓ {metadata.version('prophet')}")
+#             except Exception:
+#                 st.sidebar.caption("prophet ✓ (version unknown)")
+#     else:
+#         err = getattr(classical, "PROPHET_IMPORT_ERROR", None)
+#         st.sidebar.warning("prophet ✗ (not importable)")
+#         if err:
+#             st.sidebar.caption(err)
 
 def warn(context: str, e: Exception):
     st.warning(f"{context}: {type(e).__name__}: {e}")
@@ -177,7 +177,7 @@ def load_sample_button() -> None:
 
         if len(csvs) == 1:
             sample_path = csvs[0]
-            st.write(f"Sample detected: **{sample_path.name}**")
+            st.caption(f"Sample detected: **{sample_path.name}**")
         else:
             name = st.selectbox("Choose sample", [p.name for p in csvs], index=0)
             sample_path = samples_dir / name
@@ -1989,7 +1989,7 @@ def render_compare_page() -> None:
 def main() -> None:
     setup_page()
     init_state_keys()
-    import_smoke_test()
+    # import_smoke_test()
 
     page = sidebar_nav()    
     _inject_density_css(str(st.session_state.get("density", "expanded")).lower())

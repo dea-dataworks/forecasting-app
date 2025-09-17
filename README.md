@@ -1,7 +1,7 @@
 # Time-Series Forecasting App — v0.2
 
 **Upload a CSV, explore EDA, run baselines & classical models, and compare forecasts.**  
-Built with Streamlit, pandas, pmdarima/Prophet (optional).
+Built with Streamlit, pandas, pmdarima, and Prophet.
 
 ![Demo](assets/demo.gif)
 
@@ -12,6 +12,7 @@ Built with Streamlit, pandas, pmdarima/Prophet (optional).
 - **Data Input & Validation**
   - Safe CSV upload, datetime auto-detection, frequency inference
   - Optional regularization to fixed frequency + gap filling
+  - ⚠️ Requires **clean single-series CSVs**: one column with parseable dates (e.g. YYYY-MM-DD), one column with numeric values
 
 - **EDA**
   - Raw plot, rolling stats, variance bands
@@ -19,7 +20,7 @@ Built with Streamlit, pandas, pmdarima/Prophet (optional).
 
 - **Forecasting Models**
   - Baselines: Naive, Moving Average
-  - Classical (optional): Auto-ARIMA, Prophet
+  - Classical: Auto-ARIMA, Prophet
   - Chronological split (no shuffling), safe horizon validation
 
 - **Compare**
@@ -35,7 +36,7 @@ Built with Streamlit, pandas, pmdarima/Prophet (optional).
 
 ## Quick Start
 
-> Tested with **Python 3.12** on Windows. Prophet may need a compiler toolchain.
+> Tested with **Python 3.12** on Windows. Prophet does not yet support 3.13.
 
 ```bash
 # 1) Clone
@@ -47,13 +48,10 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1  # Windows
 # source .venv/bin/activate   # macOS/Linux
 
-# 3) Install core requirements
+# 3) Install requirements
 pip install -r requirements.txt
 
-# 4) (Optional) Classical models
-pip install pmdarima prophet
-
-# 5) Run
+# 4) Run
 streamlit run app.py
 ```
 
@@ -97,6 +95,12 @@ Open the local URL that Streamlit prints (usually http://localhost:8501).
 | --- | --- | --- | --- |
 | ![Data](assets/screenshots/data.png) | ![EDA](assets/screenshots/eda.png) | ![Models](assets/screenshots/models.png) | ![Compare](assets/screenshots/compare.png) |
 
+---
+
+## Known Behavior
+
+- **ARIMA** can be slow on longer series and may sometimes fail to converge — this is normal optimizer behavior.  
+- **Prophet** may log Stan messages during fitting — these are informational, not errors.  
 
 ---
 

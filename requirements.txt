@@ -6,4 +6,4 @@ matplotlib>=3.8
 statsmodels>=0.14
 
 pmdarima==2.0.4
-prophet>=1.1
+prophet==1.1.7
