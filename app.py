@@ -66,6 +66,45 @@ def import_smoke_test() -> None:
         from src import data_input, eda, baselines, classical, compare  # noqa: F401
     except Exception as e:
         st.sidebar.warning(f"⚠️ Import check: {type(e).__name__}: {e}")
+        return
+
+    # --- Optional deps status (helps explain greyed-out toggles)
+    import sys
+    from importlib import metadata
+    st.sidebar.caption(f"Python: {sys.executable}")
+
+    # pmdarima
+    if getattr(classical, "HAS_PMDARIMA", False):
+        try:
+            import pmdarima as _pm  # type: ignore
+            st.sidebar.caption(f"pmdarima ✓ {_pm.__version__}")
+        except Exception:
+            # Fallback to package metadata
+            try:
+                st.sidebar.caption(f"pmdarima ✓ {metadata.version('pmdarima')}")
+            except Exception:
+                st.sidebar.caption("pmdarima ✓ (version unknown)")
+    else:
+        err = getattr(classical, "PMDARIMA_IMPORT_ERROR", None)
+        st.sidebar.warning("pmdarima ✗ (not importable)")
+        if err:
+            st.sidebar.caption(err)
+
+    # prophet
+    if getattr(classical, "HAS_PROPHET", False):
+        try:
+            from prophet import __version__ as _pv  # type: ignore
+            st.sidebar.caption(f"prophet ✓ {_pv}")
+        except Exception:
+            try:
+                st.sidebar.caption(f"prophet ✓ {metadata.version('prophet')}")
+            except Exception:
+                st.sidebar.caption("prophet ✓ (version unknown)")
+    else:
+        err = getattr(classical, "PROPHET_IMPORT_ERROR", None)
+        st.sidebar.warning("prophet ✗ (not importable)")
+        if err:
+            st.sidebar.caption(err)
 
 def warn(context: str, e: Exception):
     st.warning(f"{context}: {type(e).__name__}: {e}")
@@ -1539,7 +1578,7 @@ def render_compare_page() -> None:
     
     # Merge and display
     # Always show the Leaderboard header (even if metrics are empty)
-    st.subheader(f"Leaderboard (H={H_eff}) — pick a winner")
+    st.subheader(f"Leaderboard (H={H_eff})")
     st.caption(f"freq = {to_human_freq(freq)} • sort by {sort_by}")
 
     # Merge raw metrics with timing
@@ -1643,14 +1682,14 @@ def render_compare_page() -> None:
         def _badge_text(name, row):
             b = []
             if (q25 is not None) and pd.notna(row.get("forecast_ms/step")) and (row["forecast_ms/step"] <= q25):
-                b.append("⚡")
+                b.append("fast")  # was ⚡
             d = _best_delta(row)
             if d is not None:
                 sign = "+" if d >= 0 else ""
                 b.append(f"{sign}{d:.0f}%")
             try:
                 if name in rank_std.index and pd.notna(rank_std.loc[name]) and rank_std.loc[name] <= 0.5:
-                    b.append("📈")
+                    b.append("stable")  # was 📈
             except Exception:
                 pass
             return " ".join(b)
@@ -1682,7 +1721,7 @@ def render_compare_page() -> None:
 
         decorated_final = []
         for nm, lab in zip(names, decorated):
-            decorated_final.append(f"🏆 {lab}" if (winner_key is not None and nm == winner_key) else lab)
+            decorated_final.append(f"[winner] {lab}" if (winner_key is not None and nm == winner_key) else lab)
         display.index = decorated_final
 
         # Append % sign inside Δ columns for readability
@@ -1691,7 +1730,7 @@ def render_compare_page() -> None:
             display[_delta_cols_disp] = (
                 display[_delta_cols_disp]
                 .apply(pd.to_numeric, errors="coerce").round(0)
-                .applymap(lambda v: (f"{int(v)}%" if pd.notna(v) else None))
+                .apply(lambda s: s.map(lambda v: (f"{int(v)}%" if pd.notna(v) else None)))
             )
 
         # Numeric rounding for metrics/times
@@ -1708,7 +1747,7 @@ def render_compare_page() -> None:
         ordered = time_cols + metric_cols + delta_tail
         metrics_display = metrics_display[ordered] if ordered else metrics_display
 
-        st.caption("Badges: ⚡ faster (top-quartile speed) • +X% vs baseline • 📈 stable rank (low drift).")
+        st.caption("Badges: fast (top-quartile) • +X% vs baseline • stable rank (low drift).")
         st.dataframe(metrics_display, width="stretch")
 
     except Exception as e:

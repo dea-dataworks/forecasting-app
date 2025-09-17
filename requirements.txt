@@ -1,10 +1,9 @@
 # Core runtime
 streamlit>=1.39,<2
 pandas>=2.2
-numpy>=1.26
+numpy==1.26
 matplotlib>=3.8
 statsmodels>=0.14
 
-# # ---- Optional classical models (commented out by default) ----
-# pmdarima>=2.0
-# prophet>=1.1
+pmdarima==2.0.4
+prophet>=1.1

@@ -12,15 +12,19 @@ except Exception:
     SMConvergenceWarning = None
 
 # Optional deps
+PMDARIMA_IMPORT_ERROR = None
 try:
     import pmdarima as pm
-except Exception:
+except Exception as e:
     pm = None
+    PMDARIMA_IMPORT_ERROR = f"{type(e).__name__}: {e}"
 
+PROPHET_IMPORT_ERROR = None
 try:
     from prophet import Prophet
-except Exception:
+except Exception as e:
     Prophet = None
+    PROPHET_IMPORT_ERROR = f"{type(e).__name__}: {e}"
 
 HAS_PMDARIMA = pm is not None
 HAS_PROPHET  = Prophet is not None
